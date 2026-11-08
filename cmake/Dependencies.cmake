@@ -2,6 +2,13 @@
 
 include(FetchContent)
 
+# PBConPC: DOWNLOAD_EXTRACT_TIMESTAMP is known from CMake 3.24 on; older ones (Ubuntu 22.04's 3.22,
+# where the Linux packages are built) take it as part of the hash and stop.
+set(PBCONPC_EXTRACT_TIMESTAMP)
+if(CMAKE_VERSION VERSION_GREATER_EQUAL 3.24)
+    set(PBCONPC_EXTRACT_TIMESTAMP DOWNLOAD_EXTRACT_TIMESTAMP TRUE)
+endif()
+
 set(PICOCALC_SIM_HAVE_SDL OFF)
 if(PICOCALC_SIM_SDL)
     find_package(SDL3 CONFIG QUIET)
@@ -29,7 +36,7 @@ if(PICOCALC_SIM_SDL)
         FetchContent_Declare(SDL3
             URL https://github.com/libsdl-org/SDL/releases/download/release-3.4.18/SDL3-3.4.18.tar.gz
             URL_HASH SHA256=${PICOCALC_SIM_SDL3_SHA256}
-            DOWNLOAD_EXTRACT_TIMESTAMP TRUE)
+            ${PBCONPC_EXTRACT_TIMESTAMP})
         FetchContent_MakeAvailable(SDL3)
         set(PICOCALC_SIM_SDL_TARGET SDL3::SDL3-static)
         set(PICOCALC_SIM_HAVE_SDL ON)
@@ -44,7 +51,7 @@ if(PICOCALC_SIM_HAVE_SDL)
         FetchContent_Declare(imgui
             URL https://github.com/ocornut/imgui/archive/refs/tags/v1.92.9b.tar.gz
             URL_HASH SHA256=${PICOCALC_SIM_IMGUI_SHA256}
-            DOWNLOAD_EXTRACT_TIMESTAMP TRUE)
+            ${PBCONPC_EXTRACT_TIMESTAMP})
         FetchContent_MakeAvailable(imgui)
         set(IMGUI_DIR ${imgui_SOURCE_DIR})
     endif()

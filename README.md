@@ -20,6 +20,22 @@ sich anklicken, die LEDs leuchten. Fortschritt:
 [`docs/PLAN.md`](docs/PLAN.md), was nachzubilden ist:
 [`docs/HARDWARE.md`](docs/HARDWARE.md).
 
+## Herunterladen
+
+Fertige Pakete liegen unter
+[Releases](https://github.com/hcl1981/PBConPC/releases) (x86-64):
+
+- **Windows 10/11:** `PBConPC-windows.zip` entpacken, `pbconpc.exe` starten.
+- **Ubuntu, Debian, Mint …:** `pbconpc_<version>_amd64.deb` installieren
+  (`sudo apt install ./pbconpc_<version>_amd64.deb`); danach steht PBConPC
+  im Startmenü, dazu `pbc-addgames` und `pbc-uf2flash` (= `uf2flash`) auf
+  der Kommandozeile.
+
+Das Linux-Paket braucht glibc 2.35 oder neuer (Ubuntu 22.04, Debian 12,
+Mint 21 und später); SDL3 ist eingebaut. Gebaut wird es mit
+`packaging/linux/build-packages.sh VERSION` (in einem Ubuntu-22.04-Container,
+docker).
+
 ## Bauen
 
 Braucht `cmake`, einen C/C++-Compiler und `libsdl3-dev` (ohne SDL3 entsteht

@@ -6,3 +6,5 @@ build*/
 *.ppm
 *.wav
 ref/
+!packaging/linux/*.png
+dist-linux/

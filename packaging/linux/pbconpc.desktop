@@ -1,0 +1,12 @@
+[Desktop Entry]
+Type=Application
+Name=PBConPC
+GenericName=PicoBoy Color Plus Emulator
+GenericName[de]=PicoBoy-Color-Plus-Emulator
+Comment=Runs PicoBoy Color Plus firmware (.uf2) on the PC
+Comment[de]=Führt PicoBoy-Color-Plus-Firmware (.uf2) auf dem PC aus
+Exec=pbconpc %f
+Icon=pbconpc
+Terminal=false
+Categories=Game;Emulator;
+Keywords=PicoBoy;RP2350;Pico;UF2;Emulator;

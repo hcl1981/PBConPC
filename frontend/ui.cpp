@@ -15,6 +15,7 @@
 #include <shellapi.h>
 #else
 #include <spawn.h>
+#include <sys/stat.h>
 #include <unistd.h>
 extern char **environ;
 #endif
@@ -273,6 +274,43 @@ void restart(bool erase)
 bool usb_link;
 char usb_link_flag[4096];
 
+#ifndef _WIN32
+// Where pbc-usb-attach lies: beside the program (the AppImage), in ../lib/pbconpc (the .deb's
+// /usr/lib/pbconpc), else in the source tree's tools/. Root cannot read inside a running AppImage
+// (a FUSE mount of the user's), so from there it is copied into the data folder first.
+static void usb_attach_helper(char *out, size_t size)
+{
+    const char *base = SDL_GetBasePath();
+    const char *tries[] = {"pbc-usb-attach", "../lib/pbconpc/pbc-usb-attach"};
+    snprintf(out, size, "%s/pbc-usb-attach", PBCONPC_TOOLS_DIR);
+    for (const char *t : tries) {
+        char path[4096];
+        snprintf(path, sizeof(path), "%s%s", base ? base : "", t);
+        if (base && access(path, X_OK) == 0) {
+            snprintf(out, size, "%s", path);
+            break;
+        }
+    }
+    if (!getenv("APPIMAGE") || !getenv("APPDIR") || strncmp(out, getenv("APPDIR"), strlen(getenv("APPDIR"))))
+        return;
+    char copy[4096];
+    picocalc_sim_data_path(copy, sizeof(copy), "pbc-usb-attach", true);
+    FILE *in = fopen(out, "rb"), *o = in ? fopen(copy, "wb") : nullptr;
+    if (!o) {
+        if (in)
+            fclose(in);
+        return;
+    }
+    char buf[8192];
+    size_t n;
+    while ((n = fread(buf, 1, sizeof(buf), in)) > 0)
+        fwrite(buf, 1, n, o);
+    fclose(in);
+    if (fclose(o) == 0 && chmod(copy, 0755) == 0)
+        snprintf(out, size, "%s", copy);
+}
+#endif
+
 void usb_link_set(bool on)
 {
     if (!usb_link_flag[0])
@@ -310,13 +348,13 @@ void usb_link_set(bool on)
     picocalc_sim_log("usb: attaching to this PC with usbip-win2 (github.com/vadimgrn/usbip-win2, install it once); "
                      "the serial port appears as a COM port");
 #else
-    char pid[16];
+    char pid[16], helper[4096];
     snprintf(pid, sizeof(pid), "%d", (int)getpid());
-    char *argv[] = {(char *)"pkexec", (char *)PBCONPC_TOOLS_DIR "/pbc-usb-attach", (char *)port, pid,
-                    usb_link_flag, nullptr};
+    usb_attach_helper(helper, sizeof(helper));
+    char *argv[] = {(char *)"pkexec", helper, (char *)port, pid, usb_link_flag, nullptr};
     pid_t child;
     if (posix_spawnp(&child, "pkexec", nullptr, nullptr, argv, environ) != 0) {
-        picocalc_sim_log("usb: cannot start pkexec; run: sudo %s/pbc-usb-attach", PBCONPC_TOOLS_DIR);
+        picocalc_sim_log("usb: cannot start pkexec; run: sudo %s", helper);
         remove(usb_link_flag);
         return;
     }

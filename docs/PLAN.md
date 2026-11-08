@@ -226,6 +226,13 @@ Stand und Hardware: `docs/HARDWARE.md`.
   - **Fehlerbehebung (upstream) dw_i2c.c**: Abschalten des I2C-Blocks
     (`IC_ENABLE = 0`, das SDK tut es vor jeder Übertragung) verwarf noch nicht
     weitergegebene Schreibbytes; „Register setzen, dann lesen“ kam so nie an.
+  - **Linux-Paket** (`packaging/linux/`): `build-packages.sh VERSION` baut in
+    einem Ubuntu-22.04-Container (glibc 2.35, ohne `-march=native`, SDL3
+    eingebaut) ein .deb und mit `APPIMAGETOOL` ein AppImage.
+    `cmake/Dependencies.cmake` gibt `DOWNLOAD_EXTRACT_TIMESTAMP` erst ab CMake
+    3.24 an (3.22 brach daran ab). ui.cpp sucht `pbc-usb-attach` zur Laufzeit
+    neben dem Programm, in `../lib/pbconpc` und erst dann in `tools/`; aus einem
+    AppImage wird es vor `pkexec` in den Datenordner kopiert.
   - **Skripte auf die emulierte Mikrosekunde genau**: mit `--script` hält die
     Maschine an der Zielzeit jedes `wait` an (machine.c `script_wait`,
     `hold_ps`); Tasten und Bildschirmfotos fallen so auf exakte Zeitpunkte,
