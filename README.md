@@ -30,9 +30,11 @@ Fertige Pakete liegen unter
   (`sudo apt install ./pbconpc_<version>_amd64.deb`); danach steht PBConPC
   im Startmenü, dazu `pbc-addgames` und `pbc-uf2flash` (= `uf2flash`) auf
   der Kommandozeile.
+- **Andere Linux-Distributionen:** `PBConPC-<version>-x86_64.AppImage`
+  ausführbar machen (`chmod +x`) und starten.
 
-Das Linux-Paket braucht glibc 2.35 oder neuer (Ubuntu 22.04, Debian 12,
-Mint 21 und später); SDL3 ist eingebaut. Gebaut wird es mit
+Die Linux-Pakete brauchen glibc 2.35 oder neuer (Ubuntu 22.04, Debian 12,
+Mint 21, Fedora 36 und später); SDL3 ist eingebaut. Gebaut werden sie mit
 `packaging/linux/build-packages.sh VERSION` (in einem Ubuntu-22.04-Container,
 docker).
 
