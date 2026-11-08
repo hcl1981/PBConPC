@@ -1,0 +1,8 @@
+build*/
+*.img
+*.png
+!assets/*.png
+*.flash
+*.ppm
+*.wav
+ref/

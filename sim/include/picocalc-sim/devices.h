@@ -1,0 +1,107 @@
+#pragma once
+
+#include <stdint.h>
+#include <stdbool.h>
+#include <stddef.h>
+
+#ifdef __cplusplus
+extern "C" {
+#endif
+
+// The PicoBoy Color Plus's panel.
+#define PICOCALC_SIM_LCD_WIDTH 240
+#define PICOCALC_SIM_LCD_HEIGHT 280
+
+typedef struct {
+    unsigned sck, mosi, miso, cs;
+} picocalc_sim_spi_pins_t;
+
+typedef struct st7365p st7365p_t;
+st7365p_t *st7365p_create(picocalc_sim_spi_pins_t pins, unsigned dc_pin, unsigned rst_pin);
+// Composes what the panel shows (scroll, inversion, sleep, backlight) into 320x320 ARGB8888.
+void st7365p_render(st7365p_t *lcd, uint32_t *argb, uint8_t backlight);
+uint32_t st7365p_generation(st7365p_t *lcd);
+void st7365p_destroy(st7365p_t *lcd);
+
+typedef struct st7789 st7789_t;
+st7789_t *st7789_create(picocalc_sim_spi_pins_t pins, unsigned dc_pin, unsigned rst_pin);
+// Composes what the panel shows (rows 20..299, inversion, sleep, backlight) into 240x280 ARGB8888.
+void st7789_render(st7789_t *lcd, uint32_t *argb, uint8_t backlight);
+uint32_t st7789_generation(st7789_t *lcd);
+void st7789_destroy(st7789_t *lcd);
+
+typedef struct southbridge southbridge_t;
+southbridge_t *southbridge_create(unsigned sda_pin, unsigned scl_pin, uint8_t addr);
+// key is the unshifted code of a physical key; the model applies Shift and Caps Lock itself.
+void southbridge_key(southbridge_t *sb, uint8_t key, bool pressed);
+void southbridge_tick(southbridge_t *sb);
+uint8_t southbridge_lcd_backlight(southbridge_t *sb);
+uint8_t southbridge_kbd_backlight(southbridge_t *sb);
+bool southbridge_caps_lock(southbridge_t *sb);
+bool southbridge_shift_held(southbridge_t *sb);
+void southbridge_set_battery(southbridge_t *sb, uint8_t percent, bool charging);
+uint32_t southbridge_generation(southbridge_t *sb);
+void southbridge_destroy(southbridge_t *sb);
+
+typedef struct sdcard sdcard_t;
+sdcard_t *sdcard_create(picocalc_sim_spi_pins_t pins, int detect_pin);
+bool sdcard_insert(sdcard_t *sd, const char *image_path);
+void sdcard_eject(sdcard_t *sd);
+void sdcard_flush(sdcard_t *sd);
+bool sdcard_present(sdcard_t *sd);
+// Closes the image without the card-detect pin seeing it leave.
+void sdcard_destroy(sdcard_t *sd);
+
+// The mainboard's filters on the two audio pins, as 48 kHz stereo; it costs nothing until it is
+// recorded or played.
+typedef struct picocalc_audio picocalc_audio_t;
+picocalc_audio_t *picocalc_audio_create(unsigned left_pin, unsigned right_pin);
+// Writes everything from now on to a WAV file, in emulated time, ending any earlier recording.
+bool picocalc_audio_record(picocalc_audio_t *a, const char *wav_path);
+bool picocalc_audio_recording(picocalc_audio_t *a);
+void picocalc_audio_close(picocalc_audio_t *a);
+// Starts filling the playback buffer that picocalc_audio_pull empties, from the host's audio thread.
+bool picocalc_audio_play(picocalc_audio_t *a);
+// Fills n stereo frames, padding with silence while the buffer builds up; returns frames that
+// came from the device.
+size_t picocalc_audio_pull(picocalc_audio_t *a, int16_t *frames, size_t n);
+// Finishes any recording; nothing may be pulling.
+void picocalc_audio_destroy(picocalc_audio_t *a);
+
+// The mainboard's PSRAM, an ESP-PSRAM64H on GPIOs; sio_pins are SIO0 (SI) to SIO3.
+typedef struct esp_psram esp_psram_t;
+esp_psram_t *esp_psram_create(unsigned cs_pin, unsigned sck_pin, const unsigned sio_pins[4]);
+void esp_psram_destroy(esp_psram_t *p);
+
+// The PicoBoy Color Plus board (PBConPC): what the machine and the frontend reach. The name
+// picocalc_sim_picocalc stays from picocalc-sim so its machine code needs no change.
+typedef struct picocalc {
+    st7789_t *lcd;
+    sdcard_t *sd;               // none on the PicoBoy; NULL
+    picocalc_audio_t *audio;    // the speaker on GP15
+} picocalc_t;
+
+extern picocalc_t picocalc_sim_picocalc;
+bool picocalc_board_init(void);
+// Frees the devices picocalc_board_init made; the machine drops their pin registrations.
+void picocalc_board_free(void);
+
+// The seven buttons, fed with the frontend's key codes (keys.h): arrows = joystick,
+// A or Enter = centre, S = A, D = B. Keys that are no button are ignored.
+void picoboy_key(uint8_t key, bool pressed);
+// Backlight brightness 0..255 from the PWM duty on GP26; call with the machine locked or from
+// the render loop (a torn read only costs one frame's brightness).
+uint8_t picoboy_backlight(void);
+// LED states (bit 0 green GP12, bit 1 yellow GP13, bit 2 red GP14).
+unsigned picoboy_leds(void);
+// The RGB LED's colour, 0xRRGGBB (0: dark).
+uint32_t picoboy_rgb(void);
+void picoboy_set_battery(uint8_t percent, bool charging);
+// PBConPC: the STK8BA58's reading, the device's tilt in g (flat: 0, 0, 1), and whether firmware
+// has talked to it since the machine started.
+void picoboy_set_tilt(float x, float y, float z);
+bool picoboy_tilt_used(void);
+
+#ifdef __cplusplus
+}
+#endif

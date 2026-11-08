@@ -1,0 +1,34 @@
+#!/bin/sh
+# pbc-addgames -- copy games onto the PBC-ROMS drive inside a PBConPC flash image,
+# as copying them onto the PicoBoy's USB drive would.
+#
+#   tools/pbc-addgames [-f FLASH.img] GAME [GAME ...]    copy games (existing ones are replaced)
+#   tools/pbc-addgames [-f FLASH.img] -l                 list the drive
+#
+# The drive is the FatFs at 0x700000 (7340032) that pbcemu.uf2 formats on its first start.
+# Close PBConPC first: it writes its flash back when it stops and would undo the copy.
+# Needs mtools (mcopy, mdir).
+
+flash="$HOME/.local/share/pbconpc/pbcplus.flash"
+if [ "$1" = "-f" ]; then
+    flash="$2"
+    shift 2
+fi
+if [ ! -f "$flash" ]; then
+    echo "no flash image $flash; start PBConPC with pbcemu.uf2 once first" >&2
+    exit 1
+fi
+if pgrep -x pbconpc >/dev/null 2>&1; then
+    echo "PBConPC is running; close it first, or it overwrites the drive when it stops" >&2
+    exit 1
+fi
+drive="$flash@@7340032"
+if ! mdir -i "$drive" :: >/dev/null 2>&1; then
+    echo "no PBC-ROMS drive in $flash yet; start pbcemu.uf2 in PBConPC once so it formats it" >&2
+    exit 1
+fi
+if [ "$1" = "-l" ] || [ $# -eq 0 ]; then
+    mdir -i "$drive" ::
+    exit 0
+fi
+mcopy -o -i "$drive" "$@" :: && mdir -i "$drive" :: | tail -2

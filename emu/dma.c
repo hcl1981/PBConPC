@@ -1,0 +1,516 @@
+#include <string.h>
+
+#include "chip.h"
+
+// The 16-channel DMA. Transfers move as soon as their DREQ allows; peripherals model their own
+// FIFO timing, so a channel paced by SPI or PIO runs at the peripheral's rate. Pacing timers
+// schedule their own transfers.
+
+#define CH_EN (1u << 0)
+#define CH_BUSY (1u << 26)
+
+static bool running;
+static bool rekick;
+static emu_event_t timer_ev[4];
+static uint64_t timer_next[4];
+
+// PBConPC: the channels with CH_BUSY set, kept as they change (trigger, the last transfer, abort),
+// since dma_kick runs at every DREQ edge and scanning all sixteen showed in the host's profile.
+static uint32_t busy_mask;
+
+void dma_reset(dma_t *d)
+{
+    busy_mask = 0;
+    memset(d, 0, sizeof(*d));
+    for (int i = 0; i < 16; i++) {
+        d->ch[i].ctrl = (uint32_t)i << 13;
+        d->seccfg[i] = 3;
+    }
+    for (int i = 0; i < 4; i++)
+        d->seccfg_irq[i] = 3;
+    d->seccfg_misc = 0x3ff;
+    running = rekick = false;
+}
+
+static void update_irq(chip_t *m)
+{
+    dma_t *d = &m->dma;
+    for (int k = 0; k < 4; k++)
+        chip_irq(m, IRQ_DMA_0 + (unsigned)k, ((d->intr & d->inte[k]) | d->intf[k]) != 0);
+}
+
+static void trigger(chip_t *m, int ch)
+{
+    dma_ch_t *c = &m->dma.ch[ch];
+    if (!(c->ctrl & CH_EN))
+        return;
+    c->trans_count = c->count_reload;
+    if ((c->trans_count & 0x0fffffffu) == 0 && (c->trans_count >> 28) != 0xf) {
+        if (!(c->ctrl & (1u << 23)))
+            m->dma.intr |= 1u << ch;
+        update_irq(m);
+        return;
+    }
+    c->ctrl |= CH_BUSY;
+    busy_mask |= 1u << ch;
+}
+
+static bool dreq_ready(chip_t *m, int ch)
+{
+    unsigned sel = (m->dma.ch[ch].ctrl >> 17) & 0x3f;
+    if (sel == 0x3f)
+        return true;
+    if (sel >= 0x3b && sel <= 0x3e)
+        return false;
+    return sel < DREQ_COUNT && m->dreq[sel];
+}
+
+static uint32_t step_addr(uint32_t addr, uint32_t size, bool incr, bool rev, unsigned ring, bool ring_this)
+{
+    if (!incr)
+        return addr;
+    uint32_t next = rev ? addr - size : addr + size;
+    if (ring_this && ring) {
+        uint32_t mask = (1u << ring) - 1;
+        next = (addr & ~mask) | (next & mask);
+    }
+    return next;
+}
+
+static void transfer_one(chip_t *m, int ch)
+{
+    dma_t *d = &m->dma;
+    dma_ch_t *c = &d->ch[ch];
+    uint32_t ctrl = c->ctrl;
+    uint32_t size = 1u << ((ctrl >> 2) & 3);
+    bool ok = true;
+    uint32_t v = dma_bus_read(m, c->read_addr, (int)size, d->seccfg[ch], &ok);
+    if (ctrl & (1u << 24)) {
+        if (size == 4)
+            v = __builtin_bswap32(v);
+        else if (size == 2)
+            v = (uint32_t)__builtin_bswap16((uint16_t)v);
+    }
+    if (ctrl & (1u << 25)) {
+        if (((d->sniff_ctrl >> 1) & 0xf) == 0 && ((d->sniff_ctrl >> 1) & 0x3f) == (uint32_t)ch)
+            d->sniff_data += v;
+    }
+    if (!ok) {
+        c->ctrl |= (1u << 31) | (1u << 30);
+    } else {
+        dma_bus_write(m, c->write_addr, v, (int)size, d->seccfg[ch], &ok);
+        if (!ok)
+            c->ctrl |= (1u << 31) | (1u << 29);
+    }
+    unsigned ring = (ctrl >> 8) & 0xf;
+    bool ring_write = ctrl & (1u << 12);
+    c->read_addr = step_addr(c->read_addr, size, ctrl & (1u << 4), ctrl & (1u << 5), ring, !ring_write);
+    c->write_addr = step_addr(c->write_addr, size, ctrl & (1u << 6), ctrl & (1u << 7), ring, ring_write);
+    if ((c->trans_count >> 28) != 0xf)
+        c->trans_count = (c->trans_count & 0xf0000000u) | ((c->trans_count - 1) & 0x0fffffffu);
+    if ((c->trans_count & 0x0fffffffu) == 0 && (c->trans_count >> 28) != 0xf) {
+        c->ctrl &= ~CH_BUSY;
+        busy_mask &= ~(1u << ch);
+        if (!(ctrl & (1u << 23)))
+            d->intr |= 1u << ch;
+        update_irq(m);
+        unsigned chain = (ctrl >> 13) & 0xf;
+        if ((c->trans_count >> 28) == 1)
+            trigger(m, ch);
+        else if ((int)chain != ch)
+            trigger(m, (int)chain);
+    }
+}
+
+// PBConPC: with instant transfers (the default), a channel feeding an SPI's data register from
+// plain memory moves its run in one go: what each frame does to the devices and the receive FIFO
+// is the same, without the per-frame round of DREQ, interrupt and bus checks, which with the
+// display took about a quarter of the host's time. The first item and the last eight take the
+// ordinary path, so the access checks, the completion, chaining and the lines end as before.
+uint64_t pbc_bulk_stat[4];
+
+static void bulk_spi(chip_t *m)
+{
+    dma_t *d = &m->dma;
+    for (uint32_t busy = busy_mask; busy; busy &= busy - 1) {
+        int ch = __builtin_ctz(busy);
+        dma_ch_t *c = &d->ch[ch];
+        uint32_t ctrl = c->ctrl;
+        unsigned sel = (ctrl >> 17) & 0x3f;
+        if (sel != DREQ_SPI0_TX && sel != DREQ_SPI1_TX)
+            continue;
+        pbc_bulk_stat[2]++;
+        int idx = (int)(sel - DREQ_SPI0_TX) / 2;
+        pl022_t *s = &m->spi[idx];
+        if (c->write_addr != (idx ? 0x40088008u : 0x40080008u))
+            continue;
+        // reading upward, writing in place, no ring, no byte swap, no sniffing, ordinary count
+        if (!(ctrl & (1u << 4)) || (ctrl & ((1u << 5) | (1u << 6) | (1u << 24) | (1u << 25))) || ((ctrl >> 8) & 0xf))
+            continue;
+        if ((c->trans_count >> 28) != 0 || (c->trans_count & 0x0fffffffu) < 32)
+            continue;
+        uint32_t size = 1u << ((ctrl >> 2) & 3);
+        if (size > 2 || !(s->cr1 & 2) || (s->cr1 & 1) || !(s->dmacr & 2) || s->txn)
+            continue;
+        // a channel draining the receive FIFO would see it overrun
+        bool rx_dma = false;
+        for (uint32_t b = busy_mask; b; b &= b - 1)
+            if (((d->ch[__builtin_ctz(b)].ctrl >> 17) & 0x3f) == DREQ_SPI0_RX + 2u * (unsigned)idx)
+                rx_dma = true;
+        if (rx_dma)
+            continue;
+        // the first item the ordinary way, which checks the channel may read and write there
+        running = true;
+        transfer_one(m, ch);
+        if ((c->ctrl & (1u << 31)) || !(c->ctrl & CH_BUSY) || s->txn)
+            continue;   // an error, done, or a frame still queued, which must go first
+        // page by page (64 KB), as long as there is plain memory to read
+        for (;;) {
+            const uint8_t *page = m->rpage_plain[c->read_addr >> 16];
+            uint32_t left = c->trans_count & 0x0fffffffu;
+            if (!page || left < 24 || (c->read_addr & (size - 1)))
+                break;
+            uint32_t off = c->read_addr & 0xffff, n = left - 8;
+            if (off + (uint64_t)n * size > 0x10000)
+                n = (0x10000 - off) / size;
+            if (!n)
+                break;
+            pl022_bulk_tx(m, s, page + off, n, size);
+            pbc_bulk_stat[0]++;
+            pbc_bulk_stat[1] += n;
+            c->read_addr += n * size;
+            c->trans_count = (c->trans_count & 0xf0000000u) | ((c->trans_count - n) & 0x0fffffffu);
+        }
+    }
+}
+
+void dma_kick(chip_t *m)
+{
+    if (running) {
+        rekick = true;
+        return;
+    }
+    running = true;
+    dma_t *d = &m->dma;
+    int guard = 0;
+    do {
+        rekick = false;
+        if (g_fast_bus)
+            bulk_spi(m);
+        bool progress = true;
+        while (progress && guard < 1 << 22) {
+            progress = false;
+            // PBConPC: only the busy channels, in the same order (usually one or two of sixteen)
+            uint32_t busy = busy_mask;
+            while (busy) {
+                int ch = __builtin_ctz(busy);
+                busy &= busy - 1;
+                if (!(d->ch[ch].ctrl & CH_BUSY) || !dreq_ready(m, ch))
+                    continue;
+                transfer_one(m, ch);
+                progress = true;
+                guard++;
+            }
+        }
+    } while (rekick && guard < 1 << 22);
+    running = false;
+}
+
+static uint64_t timer_period(chip_t *m, int t)
+{
+    uint32_t x = m->dma.timer[t] >> 16, y = m->dma.timer[t] & 0xffff;
+    if (!x || !y)
+        return 0;
+    return (uint64_t)m->sys_ps * y / x;
+}
+
+static void timer_fire(chip_t *m, emu_event_t *ev)
+{
+    int t = (int)(ev - timer_ev);
+    dma_t *d = &m->dma;
+    for (int ch = 0; ch < 16; ch++) {
+        dma_ch_t *c = &d->ch[ch];
+        if ((c->ctrl & CH_BUSY) && ((c->ctrl >> 17) & 0x3f) == (uint32_t)(0x3b + t)) {
+            running = true;
+            transfer_one(m, ch);
+            running = false;
+        }
+    }
+    dma_kick(m);
+    uint64_t p = timer_period(m, t);
+    bool any = false;
+    for (int ch = 0; ch < 16; ch++)
+        if ((d->ch[ch].ctrl & CH_BUSY) && ((d->ch[ch].ctrl >> 17) & 0x3f) == (uint32_t)(0x3b + t))
+            any = true;
+    if (p && any) {
+        timer_next[t] += p;
+        if (timer_next[t] < m->now)
+            timer_next[t] = m->now;
+        timer_ev[t].fn = timer_fire;
+        ev_schedule(m, &timer_ev[t], timer_next[t]);
+    }
+}
+
+static void timers_arm(chip_t *m)
+{
+    for (int t = 0; t < 4; t++) {
+        bool any = false;
+        for (int ch = 0; ch < 16; ch++)
+            if ((m->dma.ch[ch].ctrl & CH_BUSY) && ((m->dma.ch[ch].ctrl >> 17) & 0x3f) == (uint32_t)(0x3b + t))
+                any = true;
+        uint64_t p = timer_period(m, t);
+        if (any && p && !timer_ev[t].queued) {
+            timer_next[t] = m->now + p;
+            timer_ev[t].fn = timer_fire;
+            ev_schedule(m, &timer_ev[t], timer_next[t]);
+        }
+    }
+}
+
+// A channel paced by a PIO state machine moves only as the state machine catches up, which a CPU
+// waiting on the channel would otherwise not cause, so the PIO catches up before it looks.
+static void sync_pacers(chip_t *m)
+{
+    unsigned pios = 0;
+    for (uint32_t busy = busy_mask; busy; busy &= busy - 1) {
+        int ch = __builtin_ctz(busy);
+        uint32_t ctrl = m->dma.ch[ch].ctrl;
+        unsigned sel = (ctrl >> 17) & 0x3f;
+        if ((ctrl & CH_BUSY) && sel < DREQ_SPI0_TX)
+            pios |= 1u << (sel >> 3);
+    }
+    for (int i = 0; i < 3; i++)
+        if (pios & (1u << i))
+            pio_sync(m, &m->pio[i]);
+}
+
+static uint32_t regs_read(chip_t *m, uint32_t off, bool peek)
+{
+    dma_t *d = &m->dma;
+    if (!peek)
+        sync_pacers(m);
+    if (off < 0x400) {
+        dma_ch_t *c = &d->ch[off >> 6];
+        switch (off & 0x3f) {
+        case 0x00:
+        case 0x14:
+        case 0x28:
+        case 0x3c: return c->read_addr;
+        case 0x04:
+        case 0x18:
+        case 0x2c:
+        case 0x34: return c->write_addr;
+        case 0x08:
+        case 0x1c:
+        case 0x24:
+        case 0x38: return c->trans_count;
+        default: return c->ctrl;
+        }
+    }
+    switch (off) {
+    case 0x400: return d->intr;
+    case 0x404:
+    case 0x414:
+    case 0x424:
+    case 0x434: return d->inte[(off - 0x404) >> 4];
+    case 0x408:
+    case 0x418:
+    case 0x428:
+    case 0x438: return d->intf[(off - 0x408) >> 4];
+    case 0x40c:
+    case 0x41c:
+    case 0x42c:
+    case 0x43c: {
+        int k = (int)((off - 0x40c) >> 4);
+        return (d->intr & d->inte[k]) | d->intf[k];
+    }
+    case 0x440:
+    case 0x444:
+    case 0x448:
+    case 0x44c: return d->timer[(off - 0x440) >> 2];
+    case 0x454: return d->sniff_ctrl;
+    case 0x458: return d->sniff_data;
+    case 0x464: return 0;
+    case 0x468: return 16;
+    default:
+        if (off >= 0x480 && off < 0x4c0)
+            return d->seccfg[(off - 0x480) >> 2];
+        if (off >= 0x4c0 && off < 0x4d0)
+            return d->seccfg_irq[(off - 0x4c0) >> 2];
+        if (off == 0x4d0)
+            return d->seccfg_misc;
+        if (off >= 0x800 && off < 0xc00) {
+            dma_ch_t *c = &d->ch[(off - 0x800) >> 6];
+            return (off & 4) ? c->count_reload : 0;
+        }
+        return 0;
+    }
+}
+
+// The security levels are written from Secure privileged code; Non-secure privileged code may only
+// change an unlocked Non-secure channel's privilege, and unprivileged writes are bus errors.
+static bool seccfg_write(chip_t *m, uint32_t *r, uint32_t v, uint32_t bits)
+{
+    if (!access_priv(m))
+        return false;
+    if (*r & 4)
+        return true;
+    if (!access_ns(m))
+        *r = v & bits;
+    else if (bits != 0x3ff && !(*r & 2))
+        *r = (*r & ~1u) | (v & 1);
+    return true;
+}
+
+static bool regs_write(chip_t *m, uint32_t off, uint32_t v)
+{
+    dma_t *d = &m->dma;
+    if (off < 0x400) {
+        int ch = (int)(off >> 6);
+        dma_ch_t *c = &d->ch[ch];
+        bool trig = false;
+        // Programming a channel locks its security level.
+        if (!m->rp2040)
+            d->seccfg[ch] |= 4;
+        switch (off & 0x3f) {
+        case 0x00:
+        case 0x14:
+        case 0x28: c->read_addr = v; break;
+        case 0x3c: c->read_addr = v; trig = true; break;
+        case 0x04:
+        case 0x18:
+        case 0x34: c->write_addr = v; break;
+        case 0x2c: c->write_addr = v; trig = true; break;
+        case 0x08:
+        case 0x24:
+        case 0x38: c->count_reload = v; break;
+        case 0x1c: c->count_reload = v; trig = true; break;
+        case 0x0c:
+            c->ctrl = (c->ctrl & (CH_BUSY | 0xe0000000u)) | (v & 0x03ffffffu);
+            c->ctrl &= ~(v & 0x60000000u);
+            trig = true;
+            break;
+        default:
+            c->ctrl = (c->ctrl & (CH_BUSY | 0xe0000000u)) | (v & 0x03ffffffu);
+            break;
+        }
+        if (trig && v)
+            trigger(m, ch);
+        else if (trig && (off & 0x3f) == 0x0c)
+            trigger(m, ch);
+        timers_arm(m);
+        dma_kick(m);
+        return true;
+    }
+    switch (off) {
+    case 0x400:
+    case 0x40c:
+    case 0x41c:
+    case 0x42c:
+    case 0x43c: d->intr &= ~v; break;
+    case 0x404:
+    case 0x414:
+    case 0x424:
+    case 0x434: d->inte[(off - 0x404) >> 4] = v & 0xffff; break;
+    case 0x408:
+    case 0x418:
+    case 0x428:
+    case 0x438: d->intf[(off - 0x408) >> 4] = v & 0xffff; break;
+    case 0x440:
+    case 0x444:
+    case 0x448:
+    case 0x44c: d->timer[(off - 0x440) >> 2] = v; break;
+    case 0x450:
+        for (int ch = 0; ch < 16; ch++)
+            if (v & (1u << ch))
+                trigger(m, ch);
+        timers_arm(m);
+        dma_kick(m);
+        break;
+    case 0x454: d->sniff_ctrl = v; break;
+    case 0x458: d->sniff_data = v; break;
+    case 0x464:
+        for (int ch = 0; ch < 16; ch++)
+            if (v & (1u << ch)) {
+                d->ch[ch].ctrl &= ~CH_BUSY;
+                busy_mask &= ~(1u << ch);
+            }
+        break;
+    default:
+        if (off >= 0x480 && off < 0x4c0)
+            return seccfg_write(m, &d->seccfg[(off - 0x480) >> 2], v, 7);
+        if (off >= 0x4c0 && off < 0x4d0)
+            return seccfg_write(m, &d->seccfg_irq[(off - 0x4c0) >> 2], v, 3);
+        if (off == 0x4d0)
+            return seccfg_write(m, &d->seccfg_misc, v, 0x3ff);
+        break;
+    }
+    update_irq(m);
+    return true;
+}
+
+// The RP2040's DMA: 12 channels, CTRL fields packed lower (no reversed increments), the DREQs
+// numbered its own way, a plain 32-bit TRANS_COUNT, and the global registers 0x20 lower.
+static bool is_ctrl(uint32_t r)
+{
+    return r == 0x0c || r == 0x10 || r == 0x20 || r == 0x30;
+}
+
+static bool is_count(uint32_t r)
+{
+    return r == 0x08 || r == 0x1c || r == 0x24 || r == 0x38;
+}
+
+static uint32_t ctrl_in(uint32_t v)
+{
+    return (v & 0xf) | (((v >> 4) & 1) << 4) | (((v >> 5) & 1) << 6) | (((v >> 6) & 0x1ff) << 8) |
+           (rp2040_dreq_in((v >> 15) & 0x3f) << 17) | (((v >> 21) & 7) << 23) | (v & 0x60000000u);
+}
+
+static uint32_t global_off(uint32_t off)
+{
+    return off >= 0x420 && off < 0x448 ? off + 0x20 : off;
+}
+
+uint32_t dma_read(chip_t *m, uint32_t off, bool peek)
+{
+    if (!m->rp2040)
+        return regs_read(m, off, peek);
+    if (off < 0x400) {
+        unsigned ch = off >> 6;
+        if (ch >= 12)
+            return 0;
+        uint32_t v = regs_read(m, off, peek);
+        if (!is_ctrl(off & 0x3f))
+            return v;
+        uint32_t err = v & 0x60000000u;
+        return (m->rp.dma_ctrl[ch] & 0x00ffffffu) | ((v & CH_BUSY) ? 1u << 24 : 0) | err | (err ? 1u << 31 : 0);
+    }
+    if (off == 0x448)
+        return 12;
+    if (off >= 0x800 && ((off - 0x800) >> 6) >= 12)
+        return 0;
+    return regs_read(m, global_off(off), peek);
+}
+
+bool dma_write(chip_t *m, uint32_t off, uint32_t v)
+{
+    if (!m->rp2040)
+        return regs_write(m, off, v);
+    if (off < 0x400) {
+        unsigned ch = off >> 6, r = off & 0x3f;
+        if (ch >= 12)
+            return true;
+        if (is_ctrl(r)) {
+            m->rp.dma_ctrl[ch] = v & 0x00ffffffu;
+            v = ctrl_in(v);
+        } else if (is_count(r) && (v >> 28)) {
+            v = 0x0fffffffu;
+        }
+        return regs_write(m, off, v);
+    }
+    off = global_off(off);
+    if (off == 0x450 || off == 0x464)
+        v &= 0xfff;
+    return regs_write(m, off, v);
+}

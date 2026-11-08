@@ -1,0 +1,73 @@
+#!/bin/sh
+# pbc-usb-attach -- make the emulated PicoBoy's USB device a real USB device of this PC, so
+# PicoBoy Studio (Web Serial), Thonny or mpremote find its serial port (/dev/ttyACM...), and a
+# drive the firmware presents (pbcemu "Add Games") shows up as a USB stick.
+#
+# PBConPC exports the device over USB/IP (--usbip 3240, or the window's "Connect USB to this PC");
+# this attaches it through the kernel's vhci-hcd driver. Needs root:
+#
+#   sudo tools/pbc-usb-attach               attach once and exit
+#   pkexec tools/pbc-usb-attach 3240 PID FLAG
+#       (what the window runs) keep it attached -- again after every firmware restart, which
+#       unplugs the device -- while process PID lives and the file FLAG exists; detach then.
+#   sudo tools/pbc-usb-attach -d            detach
+set -u
+port=3240
+if [ "${1:-}" = "-d" ]; then
+    detach=1
+    port=${2:-3240}
+else
+    detach=0
+    port=${1:-3240}
+fi
+pid=${2:-}
+flag=${3:-}
+[ "$detach" = 1 ] && pid="" && flag=""
+
+if [ "$(id -u)" != 0 ]; then
+    echo "needs root: sudo $0 $*" >&2
+    exit 1
+fi
+modprobe vhci-hcd || exit 1
+
+# "usbip port" lists imported devices as "Port 00: ..." followed by "... usbip://HOST:PORT/BUSID".
+ours() {
+    usbip port 2>/dev/null | awk -v want="usbip://127.0.0.1:$port/" '
+        /^Port [0-9]+:/ { p = $2; sub(":", "", p) }
+        index($0, want) { print p }'
+}
+detach_all() {
+    for p in $(ours); do
+        usbip detach -p "$p" >/dev/null 2>&1
+    done
+}
+
+if [ "$detach" = 1 ]; then
+    detach_all
+    exit 0
+fi
+
+tries=0
+while :; do
+    if [ -n "$pid" ] && ! kill -0 "$pid" 2>/dev/null; then break; fi
+    if [ -n "$flag" ] && [ ! -e "$flag" ]; then break; fi
+    if [ -z "$(ours)" ]; then
+        usbip --tcp-port "$port" attach -r 127.0.0.1 -b 1-1 >/dev/null 2>&1
+    fi
+    if [ -z "$pid" ]; then
+        # once, from a terminal: report and leave it attached
+        if [ -n "$(ours)" ]; then
+            sleep 1
+            echo "attached; serial ports:"
+            ls -l /dev/serial/by-id/ 2>/dev/null | grep -i 'micropython\|picoboy\|2e8a' || ls /dev/ttyACM* 2>/dev/null
+            exit 0
+        fi
+        tries=$((tries + 1))
+        if [ $tries -ge 10 ]; then
+            echo "nothing to attach: is PBConPC running with --usbip $port and the firmware's USB on?" >&2
+            exit 1
+        fi
+    fi
+    sleep 2
+done
+detach_all
