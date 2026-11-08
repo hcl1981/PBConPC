@@ -221,7 +221,7 @@ Stand und Hardware: `docs/HARDWARE.md`.
     `key-<control>-1..3`, Voreinstellung wie zuvor fest im Code).
   - **Neigungssensor STK8BA58** (picoboy_board.c, I2C0 GP20/21, Adresse
     0x18, Chip-ID 87h, Bereich 0Fh, Achsen gedreht wie auf der Platine): Fenster
-    „Tilt sensor“ öffnet sich bei der ersten Abfrage, Skriptbefehl `tilt X Y`. Test `tests/pbc/tilttest`; MicroPythons
+    „Tilt sensor“ öffnet sich bei der ersten Abfrage; der Punkt zeigt wie in PBC+ Studio die tiefere Seite (Punkt rechts: x negativ, oben: y positiv). Skriptbefehl `tilt X Y` (Rohwerte in g); das Feld zeigt den Zustand des Sensors (`picoboy_get_tilt`), also auch per Skript gesetzte Neigung. Test `tests/pbc/tilttest`; MicroPythons
     `pbc_hw.accel_*_g()` liest die eingestellten Werte.
   - **Fehlerbehebung (upstream) dw_i2c.c**: Abschalten des I2C-Blocks
     (`IC_ENABLE = 0`, das SDK tut es vor jeder Übertragung) verwarf noch nicht

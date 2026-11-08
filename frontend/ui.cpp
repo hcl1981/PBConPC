@@ -1164,10 +1164,11 @@ bool key_capture(const SDL_Event *e)
     return true;
 }
 
-// PBConPC: the tilt sensor's pad, as in PicoBoy Studio's emulator: the dot's place is the tilt
-// (right: +x, up: +y), z makes the whole 1 g; double-click lays the device flat again.
-float tilt_nx, tilt_ny;
-
+// PBConPC: the tilt sensor's pad, as in PBC+ Studio's emulator: the dot shows the lower side, and
+// as the sensor measures the table's push against gravity, a dot to the right gives x negative,
+// a dot at the top y positive (the raised side reads positive); z makes the whole 1 g;
+// double-click lays the device flat again. The dot follows the sensor's state, so a script's
+// tilt shows as well.
 void tilt_contents()
 {
     float size = 150 * content_scale, r = size / 2;
@@ -1181,8 +1182,10 @@ void tilt_contents()
         ui_tilt(0, 0);
     else if (ImGui::IsItemActive()) {
         ImVec2 m = ImGui::GetIO().MousePos;
-        ui_tilt((m.x - p0.x - r) / r, -(m.y - p0.y - r) / r);
+        ui_tilt(-(m.x - p0.x - r) / r, -(m.y - p0.y - r) / r);
     }
+    float tilt_nx, tilt_ny, z;
+    picoboy_get_tilt(&tilt_nx, &tilt_ny, &z);
     ImDrawList *dl = ImGui::GetWindowDrawList();
     ImVec2 c(std::floor(p0.x + r) + 0.5f, std::floor(p0.y + r) + 0.5f);
     ImU32 line = ImGui::GetColorU32(ImGuiCol_Border), fill = ImGui::GetColorU32(ImGuiCol_FrameBg);
@@ -1192,9 +1195,8 @@ void tilt_contents()
     float h = std::max(1.0f, std::floor(content_scale)) / 2, e = r - 2 * content_scale;
     dl->AddRectFilled(ImVec2(c.x - e, c.y - h), ImVec2(c.x + e, c.y + h), line);
     dl->AddRectFilled(ImVec2(c.x - h, c.y - e), ImVec2(c.x + h, c.y + e), line);
-    dl->AddCircleFilled(ImVec2(c.x + tilt_nx * (r - 8 * content_scale), c.y - tilt_ny * (r - 8 * content_scale)),
+    dl->AddCircleFilled(ImVec2(c.x - tilt_nx * (r - 8 * content_scale), c.y - tilt_ny * (r - 8 * content_scale)),
                         7 * content_scale, ImGui::GetColorU32(ImGuiCol_CheckMark), 24);
-    float z = std::sqrt(std::max(0.0f, 1 - tilt_nx * tilt_nx - tilt_ny * tilt_ny));
     char values[64];
     snprintf(values, sizeof(values), "x %+.2f   y %+.2f   z %+.2f g", tilt_nx, tilt_ny, z);
     float tw = ImGui::CalcTextSize(values).x;
@@ -1782,8 +1784,6 @@ void ui_tilt(float nx, float ny)
         nx /= len;
         ny /= len;
     }
-    tilt_nx = nx;
-    tilt_ny = ny;
     picoboy_set_tilt(nx, ny, std::sqrt(std::max(0.0f, 1 - nx * nx - ny * ny)));
 }
 

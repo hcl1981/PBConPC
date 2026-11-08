@@ -100,6 +100,8 @@ void picoboy_set_battery(uint8_t percent, bool charging);
 // PBConPC: the STK8BA58's reading, the device's tilt in g (flat: 0, 0, 1), and whether firmware
 // has talked to it since the machine started.
 void picoboy_set_tilt(float x, float y, float z);
+// The tilt as last set (by the window or a script's tilt), in g.
+void picoboy_get_tilt(float *x, float *y, float *z);
 bool picoboy_tilt_used(void);
 
 #ifdef __cplusplus

@@ -100,6 +100,13 @@ void picoboy_set_tilt(float x, float y, float z)
     }
 }
 
+void picoboy_get_tilt(float *x, float *y, float *z)
+{
+    *x = tilt_axis(0);
+    *y = tilt_axis(1);
+    *z = tilt_axis(2);
+}
+
 bool picoboy_tilt_used(void)
 {
     return atomic_load(&tilt_used);

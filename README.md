@@ -60,8 +60,9 @@ Fenster ziehen.
 
 **Neigungssensor (STK8BA58):** Sobald eine Firmware den Sensor abfragt,
 öffnet sich das Fenster „Tilt sensor“ (auch unter „View → Tilt sensor“): den
-Punkt ziehen kippt den PicoBoy (rechts +x, oben +y, z ergibt sich aus 1 g),
-Doppelklick legt ihn flach; in Skripten `tilt X Y`.
+Punkt ziehen kippt den PicoBoy; wie in PBC+ Studio zeigt der Punkt die
+tiefere Seite (Punkt rechts: x negativ, Punkt oben: y positiv, z ergibt sich
+aus 1 g), Doppelklick legt ihn flach. In Skripten `tilt X Y` (Werte in g).
 
 Die Tasten für Joystick und Knöpfe lassen sich unter „Machine → Settings →
 Keys“ ändern (bis zu drei je Bedienelement; „Reset to defaults“ stellt die
