@@ -222,6 +222,9 @@ build/uf2flash test.flash pbcemu.uf2
 
 ## Lizenz
 
+PBConPC: © 2026 Jan Schulz, entwickelt zusammen mit Claude (Anthropic).
+Grundlage picocalc-sim: © 2026 Steve Gibson.
+
 MIT, wie picocalc-sim (siehe `LICENSE`). Das RP2350-Bootrom in `roms/`
 ist von Raspberry Pi (BSD-3). Firmwares, die man darin laufen lässt,
 behalten ihre eigenen Lizenzen.
