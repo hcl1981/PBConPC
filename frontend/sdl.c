@@ -427,13 +427,21 @@ int picocalc_sim_frontend_sdl_run(void)
                     running = false;
                 break;
             case SDL_EVENT_KEY_DOWN:
-                if (e.key.repeat || ui_took || !picocalc_sim_machine_running())
+                if (e.key.repeat)
                     break;
-                if (e.key.key == SDLK_F10 || (e.key.key == SDLK_RETURN && (e.key.mod & SDL_KMOD_ALT)))
-                    ui_set_fullscreen(!ui_fullscreen());
-                else if (e.key.key == SDLK_ESCAPE && ui_fullscreen())
+                // Fullscreen hides the menu and the pointer: its keys must work whatever the machine does.
+                if (e.key.key == SDLK_F10 || (e.key.key == SDLK_RETURN && (e.key.mod & SDL_KMOD_ALT))) {
+                    if (!ui_took)
+                        ui_set_fullscreen(!ui_fullscreen());
+                    break;
+                }
+                if (e.key.key == SDLK_ESCAPE && ui_fullscreen()) {
                     ui_set_fullscreen(false);
-                else if (e.key.key == SDLK_F11)
+                    break;
+                }
+                if (ui_took || !picocalc_sim_machine_running())
+                    break;
+                if (e.key.key == SDLK_F11)
                     ui_screenshot();
                 else if (e.key.key == SDLK_F12) {
                     // The BOOTSEL button on the Pico, held while the reset button is pressed.

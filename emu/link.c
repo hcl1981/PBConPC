@@ -8,7 +8,9 @@
 #define WIN32_LEAN_AND_MEAN
 #include <windows.h>
 #else
+#include <errno.h>
 #include <fcntl.h>
+#include <signal.h>
 #include <sys/mman.h>
 #include <unistd.h>
 #endif
@@ -18,7 +20,7 @@
 
 // See link.h. The shared memory holds one record per side; each side writes only its own.
 
-#define LINK_MAGIC 0x324b4e4cu   // "LNK2"
+#define LINK_MAGIC 0x334b4e4cu   // "LNK3"
 #define RING 65536u              // edges a side may run ahead of the other's reading
 #define STALL_NS 500000000ull    // a side that publishes nothing for this long counts as gone
 #define BEAT_EVERY 256u
@@ -54,6 +56,7 @@ typedef struct {
     _Atomic uint64_t beat;   // host time (ns) of its last sign of life
     _Atomic uint32_t head;   // entries written to ring
     _Atomic uint32_t seen;   // entries of the OTHER side's ring this side has taken in
+    _Atomic uint32_t pid;    // the process that owns the side
     // Set while this side waits for the other to publish; the other then publishes at every chunk
     // rather than every PUB_EVERY, so polling stays cheap for both. Its own cache line, as the
     // other side reads it after every chunk.
@@ -97,6 +100,36 @@ static side_t *theirs(void)
 static bool alive(side_t *s)
 {
     return atomic_load(&s->used) && host_ns() - atomic_load(&s->beat) < STALL_NS * 3;
+}
+
+static uint32_t own_pid(void)
+{
+#ifdef _WIN32
+    return (uint32_t)GetCurrentProcessId();
+#else
+    return (uint32_t)getpid();
+#endif
+}
+
+// Whether the process that took the side still exists. A paused PBConPC (or one in BOOTSEL, or
+// held by a debugger) gives no sign of life for a while, yet still owns its side.
+static bool owner_runs(side_t *s)
+{
+    uint32_t pid = atomic_load(&s->pid);
+    if (!pid)
+        return false;
+    if (pid == own_pid())
+        return false;   // this process, from an earlier link_open: the side is ours to take again
+#ifdef _WIN32
+    HANDLE h = OpenProcess(SYNCHRONIZE, FALSE, (DWORD)pid);
+    if (!h)
+        return GetLastError() == ERROR_ACCESS_DENIED;
+    bool runs = WaitForSingleObject(h, 0) == WAIT_TIMEOUT;
+    CloseHandle(h);
+    return runs;
+#else
+    return kill((pid_t)pid, 0) == 0 || errno == EPERM;
+#endif
 }
 
 static uint64_t to_link(uint64_t local)
@@ -195,7 +228,7 @@ bool link_open(const char *name, uint64_t local_now)
     for (int i = 0; i < 2 && me < 0; i++) {
         uint32_t free_ = 0;
         side_t *s = &shm->side[i];
-        if (atomic_compare_exchange_strong(&s->used, &free_, 1) || !alive(s))
+        if (atomic_compare_exchange_strong(&s->used, &free_, 1) || (!alive(s) && !owner_runs(s)))
             me = i;
     }
     if (me < 0) {
@@ -205,6 +238,7 @@ bool link_open(const char *name, uint64_t local_now)
     }
     side_t *s = mine(), *o = theirs();
     atomic_store(&s->used, 1);
+    atomic_store(&s->pid, own_pid());
     atomic_store(&s->head, 0);
     atomic_store(&s->seen, 0);
     atomic_store(&s->beat, host_ns());
@@ -215,7 +249,10 @@ bool link_open(const char *name, uint64_t local_now)
     atomic_store(&s->pub, start);
     partner_gen = atomic_load(&o->gen);
     partner_lines = 0;
-    uint32_t head = atomic_load(&o->head);
+    // The other side's owner crashed: its record is stale, the lines it last drove are not there.
+    if (atomic_load(&o->used) && !alive(o) && !owner_runs(o))
+        atomic_store(&o->used, 0);
+    uint32_t head = atomic_load(&o->used) ? atomic_load(&o->head) : 0;
     if (head) {
         partner_lines = o->ring[(head - 1) % RING].lines;
         atomic_store(&s->seen, head);
@@ -231,6 +268,7 @@ void link_close(void)
 {
     if (!shm)
         return;
+    atomic_store(&mine()->pid, 0);
     atomic_store(&mine()->used, 0);
     detach_mapping();
     picocalc_sim_log("link: cable unplugged");

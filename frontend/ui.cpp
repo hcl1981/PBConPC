@@ -339,7 +339,10 @@ void usb_link_set(bool on)
     snprintf(params, sizeof(params),
              "-NoProfile -ExecutionPolicy Bypass -WindowStyle Hidden -File \"%s\" %s %lu \"%s\"", script, port,
              (unsigned long)GetCurrentProcessId(), usb_link_flag);
-    if ((INT_PTR)ShellExecuteA(nullptr, "runas", "powershell.exe", params, nullptr, SW_HIDE) <= 32) {
+    // SDL's paths are UTF-8; the ANSI call would garble a folder such as C:\Users\Jörg.
+    wchar_t wparams[2 * MAX_PATH + 128];
+    if (!MultiByteToWideChar(CP_UTF8, 0, params, -1, wparams, (int)(sizeof(wparams) / sizeof(wparams[0]))) ||
+        (INT_PTR)ShellExecuteW(nullptr, L"runas", L"powershell.exe", wparams, nullptr, SW_HIDE) <= 32) {
         picocalc_sim_log("usb: could not start %s as administrator", script);
         remove(usb_link_flag);
         return;

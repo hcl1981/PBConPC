@@ -183,6 +183,31 @@
 - Testfirmware `tests/pbc/fptest`; Regressionen löschen ihre Flash-Kopien
   (16 MB je Lauf füllten /tmp).
 
+## 2026-11-15 — Durchsicht, Korrekturen
+
+- **Link-Kabel:** Eine zweite Instanz konnte die Seite einer pausierten
+  (oder in BOOTSEL stehenden, vom Debugger gehaltenen) übernehmen; beide
+  schrieben dann dieselbe Seite. Jede Seite merkt sich jetzt die Prozess-ID
+  ihres Besitzers und wird nur übernommen, wenn es den Prozess nicht mehr
+  gibt (`emu/link.c`, `LINK_MAGIC` „LNK3“). Nach einem Absturz des Partners
+  sieht die neue Instanz dessen letzte Leitungspegel nicht mehr als
+  Phantom-Partner.
+- **uf2flash:** Blöcke mit Adresse kurz vor 4 GB oder Länge 0 schrieben
+  außerhalb des Abbilds; jetzt übersprungen.
+- **Tasten:** A und Enter (beide Mitte) gleichzeitig: das Loslassen der einen
+  ließ den Knopf los, obwohl die andere noch gehalten war.
+- **Vollbild:** F10/Esc/Alt+Enter wirken auch, wenn die Maschine nicht läuft
+  (Menü und Zeiger sind im Vollbild verborgen).
+- **GDB:** `M`/`X`-Pakete lesen nicht mehr über das Paketende hinaus.
+- **Windows:** „Connect USB to this PC“ startet PowerShell mit
+  `ShellExecuteW` (Pfade mit Umlauten).
+- Geprüft: Linux- und Windows-Bau ohne Warnungen; `pbcemu.uf2` mit allen 16
+  Systemen bis ins Spiel; zwei Instanzen mit `--link` finden einander.
+- Nicht geändert (aus der Durchsicht): `pbc-addgames` erkennt eine laufende
+  AppImage-Instanz womöglich nicht (`pgrep -x pbconpc`); der ST7789-Bildlauf
+  (VSCRDEF) läuft unter dem MADCTL des PicoBoy verkehrt herum, benutzt aber
+  keine der Firmwares.
+
 ## Offen / als Nächstes
 
 1. Fenster im Alltag prüfen (Nutzer): Tasten, Mausklicks im Gehäusebild,

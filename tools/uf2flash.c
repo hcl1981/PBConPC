@@ -77,11 +77,11 @@ int main(int argc, char **argv)
                 fprintf(stderr, "%s: not a UF2 block\n", argv[a]);
                 return 1;
             }
-            int ok = !(b.flags & UF2_FLAG_NOT_MAIN_FLASH) && b.size <= 476 &&
+            int ok = !(b.flags & UF2_FLAG_NOT_MAIN_FLASH) && b.size >= 1 && b.size <= 476 &&
                      (!(b.flags & UF2_FLAG_FAMILY) || b.family == FAMILY_RP2350_ARM_S ||
                       b.family == FAMILY_ABSOLUTE || b.family == FAMILY_DATA) &&
                      !(b.family == FAMILY_ABSOLUTE && b.addr == E10_BLOCK_ADDR) &&
-                     b.addr >= FLASH_BASE && b.addr + b.size <= FLASH_BASE + FLASH_SIZE;
+                     b.addr >= FLASH_BASE && b.addr - FLASH_BASE <= FLASH_SIZE - b.size;
             if (!ok) { skipped++; continue; }
             uint32_t off = b.addr - FLASH_BASE;
             /* the sector is erased before its first block lands */

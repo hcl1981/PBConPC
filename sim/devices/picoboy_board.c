@@ -195,9 +195,14 @@ bool picocalc_board_init(void)
     return !picocalc_sim_opts.wav_path || picocalc_audio_record(b->audio, picocalc_sim_opts.wav_path);
 }
 
+// Several PC keys can hold the same button (A and Enter are both the centre): it is released
+// when the last of them is.
+static bool key_down[256];
+
 void picocalc_board_free(void)
 {
     picocalc_t *b = &picocalc_sim_picocalc;
+    memset(key_down, 0, sizeof(key_down));
     if (b->lcd)
         st7789_destroy(b->lcd);
     if (b->audio)
@@ -223,8 +228,13 @@ static int key_pin(uint8_t key)
 void picoboy_key(uint8_t key, bool pressed)
 {
     int pin = key_pin(key);
-    if (pin >= 0 && picocalc_sim_picocalc.lcd)
-        picocalc_sim_gpio_drive_input_locked((unsigned)pin, pressed ? 0 : 1);
+    if (pin < 0 || !picocalc_sim_picocalc.lcd)
+        return;
+    key_down[key] = pressed;
+    bool held = false;
+    for (unsigned k = 0; k < 256 && !held; k++)
+        held = key_down[k] && key_pin((uint8_t)k) == pin;
+    picocalc_sim_gpio_drive_input_locked((unsigned)pin, held ? 0 : 1);
 }
 
 uint8_t picoboy_backlight(void)

@@ -481,16 +481,21 @@ static void handle(char *pkt, int n)
         uint32_t len = (uint32_t)parse_hex(&p);
         p++;
         bool ok = true;
+        const char *end = pkt + n;   // a length beyond the packet must not read past it
         picocalc_sim_machine_lock();
         for (uint32_t i = 0; i < len && ok; i++) {
             uint8_t v;
             if (pkt[0] == 'M') {
+                if (end - p < 2) { ok = false; break; }
                 v = (uint8_t)(hexval(p[0]) << 4 | hexval(p[1]));
                 p += 2;
             } else {
+                if (end - p < 1) { ok = false; break; }
                 v = (uint8_t)*p++;
-                if (v == 0x7d)
+                if (v == 0x7d) {
+                    if (end - p < 1) { ok = false; break; }
                     v = (uint8_t)(*p++ ^ 0x20);
+                }
             }
             ok = mem_write8(a + i, v);
         }
