@@ -53,7 +53,7 @@ cmake --build build -j
 
 ```bash
 # mit Fenster; die UF2 wird ins Flash geschrieben wie beim BOOTSEL-Laufwerk
-build/pbconpc ~/Documents/micropython_berühren/pbc-plus/dist/pbcemu.uf2
+build/pbconpc ~/Documents/pbcplus/pbc-plus/dist/pbcemu.uf2
 
 # danach reicht
 build/pbconpc

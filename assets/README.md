@@ -1,8 +1,8 @@
 # assets
 
 `pbc_front.png` — the PicoBoy Color Plus from the front, rendered with Blender (Cycles) from
-the board's 3D model (`~/Documents/pbcplus_de/pbcp.step`) by the pbcplus.de tooling
-(`~/Documents/pbcplus_de/werkzeuge/render/render.py`, motif `vorne-buch`, file
+the board's 3D model (`~/Documents/pbcplus/website/pbcp.step`) by the pbcplus.de tooling
+(`~/Documents/pbcplus/website/werkzeuge/render/render.py`, motif `vorne-buch`, file
 `~/.cache/pbcplus-render/fertig/vorne-buch.png`), cropped to the board (offset 158, 221 from the
 1116 x 1800 render). The build embeds it (`cmake/EmbedBinary.cmake`); `frontend/skin.c` draws the
 LCD into it.

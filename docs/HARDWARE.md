@@ -2,7 +2,7 @@
 
 Was PBConPC nachbilden muss, damit die echten Firmwares laufen, vor allem
 `pbc-plus/dist/pbcemu.uf2` (Starter plus alle Emulatoren). Zusammengestellt
-aus dem Quelltext von pbc-plus (`~/Documents/micropython_berühren/pbc-plus`)
+aus dem Quelltext von pbc-plus (`~/Documents/pbcplus/pbc-plus`)
 und den Erfahrungen damit auf dem Gerät. Die allgemeine Hardware-Referenz
 für Portierungen steht dort in `docs/HARDWARE.md`; diese Datei hier beschreibt,
 **welche Teile des Chips die Firmware wirklich anfasst und wie**.

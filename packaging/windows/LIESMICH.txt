@@ -1,0 +1,27 @@
+PBConPC - ein PicoBoy Color Plus auf dem PC (Windows 10/11, 64 Bit)
+
+Starten: pbconpc.exe, dann eine .uf2 (z. B. pbcemu.uf2) auf das Fenster ziehen.
+
+Tasten: Pfeile = Joystick, A oder Enter = Mitte, S = Taste A, D = Taste B,
+F12 = RESET, Umschalt+F12 = BOOTSEL, F11 = Bildschirmfoto,
+F10 oder Alt+Enter = Vollbild (Esc beendet es).
+Joystick und Tasten lassen sich auch mit der Maus anklicken.
+Die Tastenbelegung laesst sich unter Settings -> Keys aendern.
+Gamepad: Steuerkreuz/Stick = Joystick, A/X = Taste A, B/Y = Taste B,
+Start = Mitte.
+
+USB zum PC (serielle Schnittstelle fuer PicoBoy Studio, Thonny ...;
+Laufwerk z. B. bei "Add Games"): einmal usbip-win2 installieren
+(https://github.com/vadimgrn/usbip-win2/releases), dann im Menue
+Machine -> Connect USB to this PC. Windows fragt nach Administratorrechten.
+
+Neigungssensor: Fenster View -> Tilt sensor (oeffnet sich von selbst, wenn
+ein Spiel den Sensor abfragt); der Punkt zeigt die tiefere Seite.
+
+Zwei PicoBoys mit Link-Kabel: pbconpc.exe zweimal starten und in beiden
+Fenstern Machine -> Link cable einschalten.
+
+Die Daten (Flash des Geraets, Einstellungen) liegen in %LOCALAPPDATA%\pbconpc.
+
+PBConPC: (c) 2026 Jan Schulz, entwickelt zusammen mit Claude (Anthropic).
+Grundlage: picocalc-sim von Steve Gibson (MIT-Lizenz, siehe LICENSE).
