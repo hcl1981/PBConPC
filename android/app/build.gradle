@@ -14,8 +14,8 @@ android {
         applicationId = 'de.pbcplus.emulator'
         minSdk = 24
         targetSdk = 36
-        versionCode = 5
-        versionName = '1.0.2-android5'
+        versionCode = 6
+        versionName = '1.1.0'
         externalNativeBuild {
             cmake {
                 arguments '-DPBCONPC_ANDROID_APP=ON', "-DPBCONPC_SDL_DIR=${sdlDir}", '-DANDROID_STL=c++_static'
