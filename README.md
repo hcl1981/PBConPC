@@ -23,7 +23,7 @@ sich anklicken, die LEDs leuchten. Fortschritt:
 ## Herunterladen
 
 Fertige Pakete liegen unter
-[Releases](https://github.com/hcl1981/PBConPC/releases) (x86-64):
+[Releases](https://github.com/hcl1981/PBConPC/releases) (PC: x86-64):
 
 - **Windows 10/11:** `PBConPC-windows.zip` entpacken, `pbconpc.exe` starten.
 - **Ubuntu, Debian, Mint …:** `pbconpc_<version>_amd64.deb` installieren
@@ -32,6 +32,8 @@ Fertige Pakete liegen unter
   der Kommandozeile.
 - **Andere Linux-Distributionen:** `PBConPC-<version>-x86_64.AppImage`
   ausführbar machen (`chmod +x`) und starten.
+- **Android** (ab 7, ARM64 oder x86-64): `PBConPC-<version>-android.apk`
+  installieren; siehe [Android](#android).
 
 Die Linux-Pakete brauchen glibc 2.35 oder neuer (Ubuntu 22.04, Debian 12,
 Mint 21, Fedora 36 und später); SDL3 ist eingebaut. Gebaut werden sie mit
