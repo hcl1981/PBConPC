@@ -107,7 +107,10 @@ bool picocalc_sim_usb_serial_is_open(void);
 // drive would; false, with a reason, if the cable is unplugged or the file is no UF2.
 bool picocalc_sim_usb_drive_copy(const char *path, char *err, size_t errlen);
 // Terminals on that port, a bit each; the host keeps the port open while any is attached.
-enum { PICOCALC_SIM_TERMINAL_CONSOLE = 1, PICOCALC_SIM_TERMINAL_WINDOW = 2 };
+enum { PICOCALC_SIM_TERMINAL_CONSOLE = 1, PICOCALC_SIM_TERMINAL_WINDOW = 2, PICOCALC_SIM_TERMINAL_REMOTE = 4 };
+// PBConPC: where the port's output goes while PICOCALC_SIM_TERMINAL_REMOTE is attached (the
+// Android app's Bluetooth serial port); called on the emulation thread, so it must not wait.
+extern void (*picocalc_sim_usb_serial_remote)(const uint8_t *data, size_t len);
 void picocalc_sim_usb_serial_attach(unsigned terminal, bool on);
 bool picocalc_sim_usb_serial_attached(unsigned terminal);
 // The emulation thread's view of whether any is, with the machine locked.
@@ -156,6 +159,12 @@ typedef struct {
 // The boards --board accepts; false once i is past the last.
 bool picocalc_sim_board_desc(int i, picocalc_sim_board_desc_t *d);
 double picocalc_sim_speed(void);
+// PBConPC: holds the machine where it is, with its flash saved, until let go again; thread-safe.
+void picocalc_sim_machine_pause(bool paused);
+// PBConPC: the translation to native code, off or on again while the machine runs, and whether
+// it is in use (false too on a host that has none).
+void picocalc_sim_jit_set(bool on);
+bool picocalc_sim_jit_on(void);
 
 void picocalc_sim_console_out(int uart, uint8_t byte);
 // What the firmware sent on its USB serial port, on the emulation thread.

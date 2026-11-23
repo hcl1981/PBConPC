@@ -127,6 +127,14 @@ Mit gesetzten Haltepunkten läuft die Emulation Befehl für Befehl (langsamer).
 Geht auch mit VS Code (cortex-debug, Servertyp „external“, Port 3333).
 Das System-GDB von Ubuntu kann kein ARM: `sudo apt install gdb-multiarch`.
 
+Bei einer RISC-V-Firmware meldet der Emulator die Hazard3-Register (x0 bis x31,
+`pc`, dazu `mstatus`, `mie`, `mip`, `mtvec`, `mscratch`, `mepc`, `mcause`,
+`priv`); als Debugger passt `riscv32-pico-elf-gdb` aus der Toolchain oder
+`gdb-multiarch`. Mit `--gdb-wait` steht die Maschine noch im Bootrom, das auf
+den Arm-Kernen anläuft: dort ist nur `pc` gültig, also erst `break main` und
+`continue`. Die Architektur wird beim Verbinden festgelegt; nach dem Laden
+einer Firmware der anderen Architektur den Debugger neu verbinden.
+
 ## Profiler
 
 Wo jeder Kern seine Zeit verbringt, nach Funktionen, in emulierter Zeit (also
@@ -167,6 +175,34 @@ schließt. Die Wahl wird gespeichert.
   installieren; der Menüpunkt fragt dann per UAC nach Administratorrechten
   und startet `pbc-usb-attach.ps1` (liegt neben `pbconpc.exe`).
 
+## RISC-V (Hazard3)
+
+Der RP2350 hat neben den beiden Cortex-M33 zwei RISC-V-Kerne (Hazard3). PBConPC
+emuliert beide Sorten. Eine UF2 für RISC-V (`PICO_PLATFORM=rp2350-riscv`) wird
+wie jede andere geladen; das Bootrom erkennt sie, stellt den Chip über
+`ARCHSEL` um und startet neu, wie auf dem echten Gerät. Das geht am PC und in
+der Android-App.
+
+- Befehlssatz wie im Chip: RV32IMAC mit Zicsr, Zifencei, Zba, Zbb, Zbs, Zbkb,
+  Zcb, Zcmp, M- und U-Modus, PMP, dazu Hazard3s eigene Erweiterungen
+  (Xh3irq, Xh3pmpm, Xh3power, Xh3bextm) und der Plattform-Timer im SIO.
+- Auch die RISC-V-Kerne haben einen JIT (`emu/rvjit.inc`, für x86-64 und
+  ARM64), etwa so schnell wie der für Arm. Er hält den Zeitablauf des
+  Interpreters auf den Takt genau ein: ein Lauf ergibt mit und ohne JIT
+  denselben Zustand. `PBCONPC_RVJ_OFF=1` schaltet nur ihn ab,
+  `PICOCALC_SIM_NO_JIT=1` beide.
+- Der Debugger (GDB) kennt auch die RISC-V-Kerne, siehe „Debugger (GDB)“.
+- Nötig ist das echte Bootrom (Vorgabe), nicht `--rp2350-rom stand-in`.
+
+`tests/riscv/check.sh` baut ein Prüfprogramm und vergleicht jeden Befehl der
+Erweiterungen mit einer Rechnung in C, dazu Atomics und die Reihenfolge
+verschachtelter Interrupts. Danach lässt es das Programm (und jede weitere
+RISC-V-UF2, die man angibt) mit und ohne JIT laufen und vergleicht die
+Zustandsprüfsummen. Mit `-e "qemu-aarch64 …/pbconpc"` prüft es die
+ARM64-Fassung. Es braucht das Pico-SDK und die RISC-V-Toolchain von
+Raspberry Pi (`riscv-toolchain-*.tar.gz` aus
+[pico-sdk-tools](https://github.com/raspberrypi/pico-sdk-tools/releases)).
+
 ## Tempo
 
 PBConPC übersetzt den ARM-Code der Firmware nach x86 (JIT) und lässt
@@ -201,6 +237,41 @@ Programme brauchen nur DLLs, die Windows 10/11 mitbringt; einfach den
 Ordnerinhalt kopieren. Daten liegen in `%LOCALAPPDATA%\pbconpc`. Spiele
 kommen unter Windows am einfachsten wie beim echten Gerät hinein: „Add
 Games“ mit „Connect USB to this PC“.
+
+## Android
+
+Die App zeigt den PicoBoy hochkant: Joystick und Tasten werden dort berührt,
+wo das Bild sie zeigt (der Joystick folgt dem Finger in acht Richtungen, ein
+Tipp auf den Knopf drückt ihn). Das Menü oben rechts (drei Striche) lädt eine UF2
+über den Dateidialog von Android, setzt zurück, schaltet den Ton und die
+Tempoanzeige (Vorgabe aus). Die Anzeige steht oben links in Prozent des echten
+Geräts; ein Tipp darauf schaltet die Übersetzung in Maschinencode aus (dann
+steht ein `i` dahinter) und wieder ein. Eine UF2 lässt sich auch aus einem
+Dateimanager mit der App öffnen. Die Schrift ist die des Handys (Roboto),
+gezeichnet mit `frontend/stb_truetype.h` (stb_truetype 1.26, gemeinfrei).
+Gamepads und Tastaturen am Handy gelten wie am PC. Flash und
+Einstellungen liegen im Speicher der App; im Hintergrund hält die Maschine an.
+
+**PBC+ Studio über Bluetooth:** Der Menüpunkt „Bluetooth“ (Vorgabe aus) bietet
+die serielle USB-Schnittstelle der Firmware (MicroPythons REPL) als
+Bluetooth-Seriell-Port an. Das Handy einmal mit dem PC koppeln, dann in PBC+
+Studio (Chrome/Chromium am PC, ab Version 117) „Verbinden“ wählen und den
+Bluetooth-Port des Handys nehmen, nicht dessen USB-Modem („SAMSUNG Android“
+o. ä.). Die App muss dabei im Vordergrund sein. Geprüft mit einem Galaxy A34
+und Chromium unter Linux.
+
+    android/build.sh        # ergibt android/app/build/outputs/apk/release/app-release.apk
+
+Gebraucht werden das Android-SDK (Plattform 36, NDK 29.0.14206865), ein JDK,
+CMake und Gradle 9; SDL 3.4.18 holt das Skript. Die APK enthält die Fassungen
+für ARM64 und x86-64 und ist mit dem Debug-Schlüssel signiert.
+
+Für ARM64 gibt es einen eigenen Übersetzer, `emu/jit_a64.inc`, einfacher als
+der für x86-64: Die häufigen Befehle schreibt er als ARM64-Code, die übrigen
+rufen ihren Handler. `tests/a64/check.sh` prüft ihn ohne ARM-Rechner unter
+qemu gegen den Interpreter (gleiche Zustandsprüfsumme; auch der x86-64-JIT
+und der Interpreter liefern bei allen Firmwares dieselbe). Link-Kabel, GDB,
+USB/IP und das Terminal gibt es in der App nicht.
 
 ## Ohne Fenster (Tests)
 

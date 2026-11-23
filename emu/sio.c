@@ -33,6 +33,11 @@ void sio_reset(chip_t *m)
     memset(m->sio, 0, sizeof(m->sio));
     memset(m->interp, 0, sizeof(m->interp));
     m->peri_nonsec = 0;
+    m->rv_softirq = 0;
+    m->mtime_ctrl = 0xd;
+    m->mtime_val = 0;
+    m->mtime_t0 = m->now;
+    m->mtimecmp[0] = m->mtimecmp[1] = ~0ull;
 }
 
 // The GPIOs ACCESSCTRL's GPIO_NSMASK registers grant Non-secure code, in the SIO's layout.
@@ -125,9 +130,47 @@ static uint32_t interp_access(interp_t *ip, uint32_t off, bool write, uint32_t v
     }
 }
 
+// PBConPC: the RISC-V platform timer counts microseconds, or system clock cycles with FULLSPEED,
+// while its enable bit is set; each core has a comparator, whose interrupt is also mip.mtip.
+static uint64_t mtime_period(chip_t *m)
+{
+    return (m->mtime_ctrl & 2) ? m->sys_ps : PS_PER_US;
+}
+
 static uint64_t mtime(chip_t *m)
 {
-    return m->now / PS_PER_US;
+    if (!(m->mtime_ctrl & 1))
+        return m->mtime_val;
+    return m->mtime_val + (m->now - m->mtime_t0) / mtime_period(m);
+}
+
+static void mtime_fire(chip_t *m, emu_event_t *ev);
+
+static void mtime_update(chip_t *m)
+{
+    uint64_t now = mtime(m);
+    for (int i = 0; i < 2; i++) {
+        bool level = now >= m->mtimecmp[i];
+        chip_irq_core(m, i, IRQ_SIO_MTIMECMP, level);
+        ev_cancel(m, &m->mtime_ev[i]);
+        if (!level && (m->mtime_ctrl & 1) && m->mtimecmp[i] - now < (1ull << 40)) {
+            m->mtime_ev[i].fn = mtime_fire;
+            ev_schedule(m, &m->mtime_ev[i], m->mtime_t0 + (m->mtimecmp[i] - m->mtime_val) * mtime_period(m));
+        }
+    }
+}
+
+static void mtime_fire(chip_t *m, emu_event_t *ev)
+{
+    (void)ev;
+    mtime_update(m);
+}
+
+// Fixes the count reached so far, before something changes how it goes on.
+static void mtime_latch(chip_t *m)
+{
+    m->mtime_val = mtime(m);
+    m->mtime_t0 = m->now;
 }
 
 // The RP2040's divider, one per core: the M0+ has no divide instruction, so the SDK writes the
@@ -278,9 +321,12 @@ static inline __attribute__((always_inline)) uint32_t sio_read_bank(cpu_t *c, ui
     case 0x18c: return k->doorbell[c->id];
     // PERI_NONSEC and the RISC-V platform timer are only in the Secure bank.
     case 0x190: return b ? 0 : m->peri_nonsec;
-    case 0x1a4: return 0;
+    case 0x1a0: return b ? 0 : m->rv_softirq * 0x101u;
+    case 0x1a4: return b ? 0 : m->mtime_ctrl;
     case 0x1b0: return b ? 0 : (uint32_t)mtime(m);
     case 0x1b4: return b ? 0 : (uint32_t)(mtime(m) >> 32);
+    case 0x1b8: return b ? 0 : (uint32_t)m->mtimecmp[c->id];
+    case 0x1bc: return b ? 0 : (uint32_t)(m->mtimecmp[c->id] >> 32);
     default:
         if (off >= 0x100 && off < 0x180) {
             unsigned n = (off - 0x100) >> 2;
@@ -390,6 +436,34 @@ static inline __attribute__((always_inline)) void sio_write_bank(cpu_t *c, uint3
     case 0x190:
         if (!b)
             m->peri_nonsec = v;
+        return;
+    case 0x1a0:
+        // Setting wins over clearing; the cores see the flags as mip.msip.
+        if (!b) {
+            m->rv_softirq = ((m->rv_softirq & ~(v >> 8)) | v) & 3;
+            cpu_poke(&m->core[0]);
+            cpu_poke(&m->core[1]);
+        }
+        return;
+    case 0x1a4:
+    case 0x1b0:
+    case 0x1b4:
+    case 0x1b8:
+    case 0x1bc:
+        if (b)
+            return;
+        mtime_latch(m);
+        if (off == 0x1a4)
+            m->mtime_ctrl = v & 0xf;
+        else if (off == 0x1b0)
+            m->mtime_val = (m->mtime_val & ~0xffffffffull) | v;
+        else if (off == 0x1b4)
+            m->mtime_val = (m->mtime_val & 0xffffffffull) | ((uint64_t)v << 32);
+        else if (off == 0x1b8)
+            m->mtimecmp[c->id] = (m->mtimecmp[c->id] & ~0xffffffffull) | v;
+        else
+            m->mtimecmp[c->id] = (m->mtimecmp[c->id] & 0xffffffffull) | ((uint64_t)v << 32);
+        mtime_update(m);
         return;
     default:
         if (off >= 0x100 && off < 0x180) {

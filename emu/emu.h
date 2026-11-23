@@ -65,6 +65,42 @@ typedef struct {
     uint32_t ctrl, rnr, rbar[8], rlar[8], mair[2];
 } mpu_t;
 
+// PBConPC: a Hazard3 core's state (riscv.c), used while ARCHSEL has the core run RISC-V. The program
+// counter stays in r[15], and control bit 0 is set in U-mode, so the bus sees the privilege.
+typedef struct {
+    uint32_t x[33];   // x[32] takes what is written to x0
+    uint32_t mstatus, mie, mtvec, mscratch, mepc, mcause, mcounteren, mcountinhibit, tdata2, tcontrol, msleep;
+    uint32_t pmpcfg[4], pmpaddr[16], pmpcfgm0;
+    // Xh3irq: enable and force arrays, a priority for each line, and meicontext without its
+    // mtiesave, msiesave and clearts bits.
+    uint64_t meiea, meifa;
+    uint8_t meipra[64];
+    uint32_t meictx;
+    uint64_t cyc_val, cyc_t0, ret_val, ret_t0;
+    // The backward branch the frontend predicts taken, the register a load just wrote and whether
+    // the last instruction jumped, for the cycle counts.
+    uint32_t bp_pc;
+    uint8_t ld_rd;
+    bool jumped;
+    bool m_mode;
+    // Set when the PMP can refuse something in the current mode, and when it can anywhere
+    // (U-mode); g_lo and g_len span the addresses at which accesses must ask it.
+    bool pmp_chk, pmp_all;
+    uint32_t g_lo, g_len;
+    // For native code (rvjit.inc): the cycles left of the run, the time at which none are left
+    // and the clock period; the jump a link exit wants patched; cycles an instruction has already
+    // been charged before the interpreter runs it, which it must then do whatever the time; and
+    // what the cycle count was after the last penalty at a block's start and the last flash
+    // cache miss, with their sizes.
+    int32_t jrem;
+    uint32_t jpre;
+    uint64_t jlimv, jps;
+    void *jsite;
+    bool jforce;
+    int32_t jpen_before, jpen_rem, jx_rem;
+    uint32_t jx_e, jx_j;
+} rv_t;
+
 // Banked registers have a Secure copy under the plain name and a Non-secure one ending in _ns, and
 // r[13] is the current stack pointer, whose own slot is stale until the core switches stacks.
 struct cpu {
@@ -129,6 +165,9 @@ struct cpu {
     int hle_state;
     uint32_t hle_val;
 
+    bool rv;
+    rv_t h3;
+
     chip_t *m;
 };
 
@@ -136,6 +175,10 @@ void cpu_reset(cpu_t *c);
 void cpu_run(cpu_t *c, uint64_t until);
 // Forgets every translated block, which a new machine could otherwise mistake for its own code.
 void cpu_flush_code(void);
+// PBConPC: native code (jit.inc, jit_a64.inc) off or on again while the machine runs; the state is
+// 1 while it is used, 0 when it is off or this host has none.
+void cpu_jit_set(bool on);
+int cpu_jit_state(void);
 uint32_t cpu_ppb_read(cpu_t *c, uint32_t off);
 void cpu_ppb_write(cpu_t *c, uint32_t off, uint32_t v);
 static inline void cpu_poke(cpu_t *c)
@@ -156,5 +199,14 @@ void cpu_undefined(cpu_t *c, uint32_t pc, uint32_t op);
 const char *cpu_state_name(const cpu_t *c);
 void cpu_dump(const cpu_t *c);
 void cpu_return_from_hle(cpu_t *c);
+
+// riscv.c
+void rv_reset(cpu_t *c);
+void rv_run(cpu_t *c, uint64_t until);
+bool rv_irq_wakes(cpu_t *c);
+void rv_dump(const cpu_t *c);
+void rv_jit_set(bool on);
+uint32_t rv_gdb_get(const cpu_t *c, int n);
+void rv_gdb_set(cpu_t *c, int n, uint32_t v);
 
 void emu_log(const char *fmt, ...) __attribute__((format(PICOCALC_SIM_PRINTF_FORMAT, 1, 2)));

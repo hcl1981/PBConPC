@@ -495,6 +495,13 @@ struct chip {
     sio_bank_t sio[2];
     interp_t interp[2][2];
     uint32_t peri_nonsec;
+    // PBConPC: OTP's ARCHSEL (bit 0 core 0, bit 1 core 1; 1 is RISC-V) and what the cores sampled
+    // at their last reset; the RISC-V software interrupts and platform timer in the SIO.
+    uint32_t archsel, archsel_status;
+    bool rv_image;   // PBConPC: the UF2 loaded last was built for the RISC-V cores (the debugger asks)
+    uint32_t rv_softirq, mtime_ctrl;
+    uint64_t mtime_val, mtime_t0, mtimecmp[2];
+    emu_event_t mtime_ev[2];
 
     pl022_t spi[2];
     dw_i2c_t i2c[2];

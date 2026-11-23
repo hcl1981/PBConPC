@@ -228,10 +228,15 @@ bool uf2_program(chip_t *m, const uf2_file_t *f, char *err, size_t errlen)
         snprintf(err, errlen, "this UF2 is not for the RP2040 on a %s", m->board->name);
         return false;
     }
-    if (f->family == UF2_FAMILY_RP2350_RISCV) {
-        snprintf(err, errlen, "RISC-V images are not supported yet");
+    // PBConPC: the Hazard3 cores are brought up by Raspberry Pi's ROM, not by the stand-in.
+    if (f->family == UF2_FAMILY_RP2350_RISCV && !m->real_rom) {
+        snprintf(err, errlen, "RISC-V images need Raspberry Pi's boot ROM, not the stand-in");
         return false;
     }
+    if (f->family == UF2_FAMILY_RP2350_RISCV)
+        m->rv_image = true;
+    else if (f->family == UF2_FAMILY_RP2350_ARM_S || f->family == UF2_FAMILY_RP2350_ARM_NS || f->family == UF2_FAMILY_RP2040)
+        m->rv_image = false;
     if (f->ram && m->rp2040) {
         // As the RP2040's ROM does once BOOTSEL's drive has a RAM image: it reboots through the
         // watchdog with the scratch registers telling itself to jump to the lowest address.

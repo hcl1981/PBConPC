@@ -32,6 +32,13 @@ void skin_draw_leds(SDL_Renderer *renderer, SDL_FRect dst, unsigned leds, uint32
 void skin_draw_lcd_corners(SDL_Renderer *renderer, SDL_FRect lcd, const SDL_FRect *frame_dst);
 // The key (keys.h) under a point in render coordinates, or 0.
 uint8_t skin_key_at(SDL_FRect dst, float x, float y);
+// A finger on the frame (Android): the keys it holds, up to two for a diagonal, given where it
+// went down (x0, y0) and where it is now. A finger that went down on the joystick steers by its
+// direction from the joystick's middle however far it strays; one that went down on the knob and
+// stays there pushes the joystick in. Right of the joystick, the nearer of A and B is pressed.
+int skin_touch_keys(SDL_FRect dst, float x0, float y0, float x, float y, uint8_t keys[2]);
+// A light on the controls these keys belong to, so a finger sees what it holds.
+void skin_draw_touch(SDL_Renderer *renderer, SDL_FRect dst, const uint8_t *keys, int n);
 #endif
 
 #ifdef __cplusplus

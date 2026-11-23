@@ -28,7 +28,7 @@ static const char *const known[] = {
     "console", "no-wifi", "wifi-ap",    "usb",   "usb-terminal", "usbip", "forward",     "battery",
     "charging", "volume", "mute",       "scale", "screenshot-dir",
     // PBConPC
-    "device-frame", "link", "usb-link", "theme",
+    "device-frame", "link", "usb-link", "theme", "speed-display", "bluetooth-serial",
     "key-up-1", "key-up-2", "key-up-3", "key-down-1", "key-down-2", "key-down-3", "key-left-1",
     "key-left-2", "key-left-3", "key-right-1", "key-right-2", "key-right-3", "key-centre-1", "key-centre-2",
     "key-centre-3", "key-a-1", "key-a-2", "key-a-3", "key-b-1", "key-b-2", "key-b-3",

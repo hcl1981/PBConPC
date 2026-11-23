@@ -1,0 +1,4 @@
+deps/
+.gradle/
+app/.cxx/
+local.properties

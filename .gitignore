@@ -8,3 +8,5 @@ build*/
 ref/
 !packaging/linux/*.png
 dist-linux/
+dist-android/
+!android/app/src/main/res/mipmap-*/*.png

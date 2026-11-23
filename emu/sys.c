@@ -381,7 +381,8 @@ uint32_t sysctl_read(chip_t *m, uint32_t base, uint32_t off)
     case 0x40120000:
         switch (off) {
         case 0x124: return 0;
-        case 0x15c: return 0;
+        case 0x158: return m->archsel;
+        case 0x15c: return m->archsel_status;
         default: return off < 0x180 ? m->otp_regs[off >> 2] : 0;
         }
     case 0x40158000:
@@ -533,7 +534,9 @@ void sysctl_write(chip_t *m, uint32_t base, uint32_t off, uint32_t v)
         }
         break;
     case 0x40120000:
-        if (off < 0x180)
+        if (off == 0x158)
+            m->archsel = v & 3;
+        else if (off < 0x180)
             m->otp_regs[off >> 2] = v;
         break;
     case 0x40158000:

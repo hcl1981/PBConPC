@@ -1028,7 +1028,9 @@ static void block_run(cpu_t *c, block_t *b, uint64_t until)
             break;
         }
         t += (uint64_t)c->cyc * ps;
-        if (t >= until)
+        // PBConPC: m->until moves in when this instruction scheduled an event inside the chunk;
+        // the native cores stop there too, so both see the event at the same time
+        if (t >= until || t >= m->until)
             break;
         if (++d == end || c->r[15] != next) {
             // The core only stops or starts an IT block at an instruction that ends a block or

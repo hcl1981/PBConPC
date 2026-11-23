@@ -11,6 +11,9 @@
 // writes the flash as programming it would; `monitor reset` presses RESET. While breakpoints
 // are set or a step runs, the cores interpret instruction by instruction instead of running
 // translated code, a few times slower than the device.
+//
+// With a RISC-V image the session speaks of the Hazard3 cores instead (riscv32-pico-elf-gdb):
+// x0 to x31, pc, and mstatus, mie, mip, mtvec, mscratch, mepc, mcause, priv.
 
 #include <stdatomic.h>
 #include <stdbool.h>

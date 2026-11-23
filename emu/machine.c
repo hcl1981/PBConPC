@@ -183,6 +183,23 @@ bool picocalc_sim_board_desc(int i, picocalc_sim_board_desc_t *d)
     return true;
 }
 
+void picocalc_sim_jit_set(bool on)
+{
+    cpu_jit_set(on);
+}
+
+bool picocalc_sim_jit_on(void)
+{
+    return cpu_jit_state() == 1;
+}
+
+static atomic_bool pause_flag;
+
+void picocalc_sim_machine_pause(bool paused)
+{
+    atomic_store(&pause_flag, paused);
+}
+
 double picocalc_sim_speed(void)
 {
     return speed;
@@ -499,6 +516,7 @@ static void handle_requests(void)
         }
         if (program_uf2_locked(path, err, sizeof(err))) {
             set_state(PICOCALC_SIM_RUNNING, "");
+            chip.archsel = 0;   // PBConPC: as after a power cycle, the ROM picks the architecture again
             chip_reset(&chip, true);
         } else {
             picocalc_sim_log("%s", err);
@@ -534,6 +552,7 @@ static void handle_requests(void)
             chip.wd_reason = 0;
             chip.bootram_write_once[0] = chip.bootram_write_once[1] = 0;
             chip.boot_type = held ? 2 : 0;
+            chip.archsel = 0;   // PBConPC: RUN resets ARCHSEL as well
         }
         chip_reset(&chip, true);
         // A person holds BOOTSEL through the reset button and lets go once the board has started,
@@ -748,6 +767,17 @@ static void *machine_main(void *arg)
             emu0 = chip.now;
             continue;
         }
+        if (atomic_load(&pause_flag)) {
+            // PBConPC: the app is in the background (Android): nothing runs, and the flash is on
+            // disk in case the app is closed there
+            flash_save();
+            pthread_mutex_unlock(&lock);
+            picocalc_sim_sleep_ns(10 * 1000000ull);
+            pthread_mutex_lock(&lock);
+            host0 = picocalc_sim_mono_ns();
+            emu0 = chip.now;
+            continue;
+        }
         if (s != PICOCALC_SIM_RUNNING) {
             pthread_mutex_unlock(&lock);
             picocalc_sim_sleep_ns(10 * 1000000ull);
@@ -769,7 +799,9 @@ static void *machine_main(void *arg)
             continue;
         }
         run_slice();
-        atomic_store(&usb_boot, chip.real_rom && chip.core[0].ns && chip.core[0].r[15] < 0x8000u);
+        // The ROM's USB boot runs Non-secure on an Arm core, and in U-mode on a RISC-V one.
+        atomic_store(&usb_boot, chip.real_rom && chip.core[0].r[15] < 0x8000u &&
+                                    (chip.core[0].rv ? !chip.core[0].h3.m_mode : chip.core[0].ns));
         pinwave_advance(&chip);
         if (restart_at_ps && chip.now >= restart_at_ps) {
             restart_at_ps = 0;
@@ -1071,6 +1103,8 @@ static uint64_t state_digest(void)
         h = fnv1a(h, &c->insns, sizeof(c->insns));
         h = fnv1a(h, c->s, sizeof(c->s));
         h = fnv1a(h, &c->fpscr, sizeof(c->fpscr));
+        if (c->rv)
+            h = fnv1a(h, c->h3.x, 32 * sizeof(c->h3.x[0]));
     }
     return fnv1a(h, chip.sram, sizeof(chip.sram));
 }

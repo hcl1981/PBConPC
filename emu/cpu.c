@@ -817,6 +817,8 @@ static unsigned best_pending(cpu_t *c, int *prio, bool *secure)
 
 bool cpu_irq_wakes(cpu_t *c)
 {
+    if (c->rv)
+        return rv_irq_wakes(c);
     int bp;
     bool s;
     unsigned n = best_pending(c, &bp, &s);
@@ -1303,12 +1305,17 @@ void cpu_reset(cpu_t *c)
     c->pri_mask = v8 ? 0xf0 : 0xc0;
     c->ccr = c->ccr_ns = v8 ? 0x201 : 0x204;
     c->syst[0].ev.ctx = c->syst[1].ev.ctx = c;
+    c->state = CPU_RUN;
+    c->check_exc = true;
+    // PBConPC: a core ARCHSEL gave to RISC-V starts as a Hazard3, at the ROM's RISC-V reset vector.
+    if (!m->rp2040 && m->real_rom && ((m->archsel_status >> id) & 1)) {
+        rv_reset(c);
+        return;
+    }
     c->msp = rd32le(m->rom + 0) & ~3u;
     c->r[13] = c->msp;
     c->r[14] = 0xffffffffu;
     c->r[15] = rd32le(m->rom + 4) & ~1u;
-    c->state = CPU_RUN;
-    c->check_exc = true;
 }
 
 void cpu_return_from_hle(cpu_t *c)
@@ -2353,7 +2360,39 @@ void cpu_flush_code(void)
     jit_forget();
 }
 
+// PBConPC, for comparing two runs: PBCONPC_CPULOG=file:from_ms:to_ms writes where each core stands
+// whenever cpu_run comes back, between those emulated times.
+static void cpu_log_point(cpu_t *c, uint64_t until)
+{
+    static FILE *f;
+    static uint64_t from, to;
+    static int on = -1;
+    if (on < 0) {
+        const char *e = getenv("PBCONPC_CPULOG");
+        char path[256];
+        unsigned long a = 0, b = 0;
+        on = e && sscanf(e, "%255[^:]:%lu:%lu", path, &a, &b) == 3 && (f = fopen(path, "w")) != NULL;
+        from = (uint64_t)a * PS_PER_MS;
+        to = (uint64_t)b * PS_PER_MS;
+    }
+    if (on && c->t >= from && c->t < to)
+        fprintf(f, "%d t %llu until %llu pc %08x insns %llu apsr %08x r0 %08x sp %08x st %d\n", c->id,
+                (unsigned long long)c->t, (unsigned long long)until, c->r[15], (unsigned long long)c->insns, c->apsr,
+                c->r[0], c->r[13], c->state);
+}
+
+static void cpu_run_(cpu_t *c, uint64_t until);
+
 void cpu_run(cpu_t *c, uint64_t until)
+{
+    if (c->rv)
+        rv_run(c, until);
+    else
+        cpu_run_(c, until);
+    cpu_log_point(c, until);
+}
+
+static void cpu_run_(cpu_t *c, uint64_t until)
 {
     chip_t *m = c->m;
     bool use_blocks = blocks_on();
@@ -2443,6 +2482,10 @@ const char *cpu_state_name(const cpu_t *c)
 
 void cpu_dump(const cpu_t *c)
 {
+    if (c->rv) {
+        rv_dump(c);
+        return;
+    }
     emu_log("core %d %s%s pc=%08x lr=%08x sp=%08x psr=%08x ipsr=%u primask=%u", c->id, cpu_state_name(c),
             c->ns ? " in Non-secure state" : "", c->r[15], c->r[14], c->r[13], c->apsr, c->ipsr,
             c->ns ? c->primask_ns : c->primask);

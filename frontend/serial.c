@@ -86,8 +86,12 @@ static void make_raw(void)
     atexit(restore);
 }
 
+void (*picocalc_sim_usb_serial_remote)(const uint8_t *data, size_t len);
+
 void picocalc_sim_usb_serial_out(const uint8_t *data, size_t len)
 {
+    if (picocalc_sim_usb_serial_remote && picocalc_sim_usb_serial_attached(PICOCALC_SIM_TERMINAL_REMOTE))
+        picocalc_sim_usb_serial_remote(data, len);
     if (picocalc_sim_usb_serial_attached(PICOCALC_SIM_TERMINAL_WINDOW))
         term_feed(data, len);
     if (!picocalc_sim_usb_serial_attached(PICOCALC_SIM_TERMINAL_CONSOLE))

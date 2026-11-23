@@ -3,7 +3,8 @@
 #include "picocalc-sim/keys.h"
 #include "picocalc-sim/sim.h"
 
-#ifndef PICOCALC_SIM_HAVE_SDL
+// On Android the window is frontend/android.c's.
+#if !defined(PICOCALC_SIM_HAVE_SDL) || defined(__ANDROID__)
 
 bool picocalc_sim_frontend_sdl_available(void)
 {

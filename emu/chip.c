@@ -508,7 +508,7 @@ static uint32_t mem_read(chip_t *m, cpu_t *c, uint32_t addr, int size, bool *ok)
             return extract(sio_read(c, addr & 0x3ffff, ok), addr, size);
         break;
     case 0xe:
-        if (c) {
+        if (c && !c->rv) {
             if (addr < 0xe0040000u)
                 return extract(cpu_ppb_read(c, addr & 0x3ffff), addr, size);
             return 0;
@@ -637,7 +637,7 @@ static void mem_write(chip_t *m, cpu_t *c, uint32_t addr, uint32_t v, int size, 
         }
         break;
     case 0xe:
-        if (c) {
+        if (c && !c->rv) {
             if (addr < 0xe0040000u)
                 cpu_ppb_write(c, addr & 0x3ffff, v);
             return;
@@ -894,6 +894,11 @@ void chip_reset(chip_t *m, bool watchdog)
     memset(m->busctrl, 0, sizeof(m->busctrl));
     memset(m->ticks, 0, sizeof(m->ticks));
     memset(m->otp_regs, 0, sizeof(m->otp_regs));
+    // PBConPC: ARCHSEL outlives a watchdog reset, which is how the ROM changes architecture; the
+    // cores sample it as they leave reset.
+    if (!watchdog)
+        m->archsel = 0;
+    m->archsel_status = m->archsel;
     memset(m->trng_regs, 0, sizeof(m->trng_regs));
     m->bootlock_stat = 0xff;
     if (!watchdog) {

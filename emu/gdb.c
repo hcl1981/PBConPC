@@ -140,13 +140,34 @@ static bool psp_active(const cpu_t *c)
 // The register list target.xml announces, in its order.
 enum { R_XPSR = 16, R_MSP, R_PSP, R_PRIMASK, R_BASEPRI, R_FAULTMASK, R_CONTROL, R_D0, R_FPSCR = R_D0 + 16, R_COUNT };
 
+// The session speaks of the Hazard3 cores' registers (x0 to x31, pc, a few CSRs: rv_gdb_get) and
+// not of the Arm cores'. Settled when a debugger connects, as GDB cannot change architecture in a
+// session: by the cores, or by the image while the ROM still boots it on the Arm cores.
+static bool desc_rv;
+enum { RV_COUNT = 41, RV_PC = 32 };
+
+static void pick_desc(void)
+{
+    chip_t *m = M();
+    desc_rv = m && !m->rp2040 && (m->core[0].rv || m->rv_image);
+}
+
+static int reg_count(void)
+{
+    return desc_rv ? RV_COUNT : R_COUNT;
+}
+
 static int reg_size(int n)
 {
+    if (desc_rv)
+        return 4;
     return n >= R_D0 && n < R_FPSCR ? 8 : 4;
 }
 
 static uint64_t reg_get(cpu_t *c, int n)
 {
+    if (desc_rv)   // the ROM's Arm code before it hands over: only the program counter means anything
+        return c->rv ? rv_gdb_get(c, n) : n == RV_PC ? c->r[15] : 0;
     if (n < 16)
         return c->r[n];
     switch (n) {
@@ -170,6 +191,13 @@ static uint64_t reg_get(cpu_t *c, int n)
 static void reg_set(cpu_t *c, int n, uint64_t v)
 {
     uint32_t w = (uint32_t)v;
+    if (desc_rv) {
+        if (c->rv) {
+            rv_gdb_set(c, n, w);
+            cpu_poke(c);
+        }
+        return;
+    }
     if (n < 16) {
         c->r[n] = n == 15 ? w & ~1u : w;
         return;
@@ -220,6 +248,33 @@ static const char target_xml[] =
     "<reg name=\"d14\" bitsize=\"64\" type=\"ieee_double\"/><reg name=\"d15\" bitsize=\"64\" type=\"ieee_double\"/>"
     "<reg name=\"fpscr\" bitsize=\"32\" type=\"int\" group=\"float\"/></feature>"
     "</target>";
+
+static const char *rv_target_xml(void)
+{
+    static char xml[4096];
+    if (!xml[0]) {
+        static const char *const names[] = {"zero", "ra", "sp", "gp", "tp", "t0", "t1", "t2", "fp", "s1", "a0",
+                                            "a1",   "a2", "a3", "a4", "a5", "a6", "a7", "s2", "s3", "s4", "s5",
+                                            "s6",   "s7", "s8", "s9", "s10", "s11", "t3", "t4", "t5", "t6"};
+        static const char *const csrs[] = {"mstatus", "mie", "mip", "mtvec", "mscratch", "mepc", "mcause"};
+        size_t k = (size_t)snprintf(xml, sizeof(xml),
+                                    "<?xml version=\"1.0\"?><!DOCTYPE target SYSTEM \"gdb-target.dtd\">"
+                                    "<target version=\"1.0\"><architecture>riscv:rv32</architecture>"
+                                    "<feature name=\"org.gnu.gdb.riscv.cpu\">");
+        for (int i = 0; i < 32; i++)
+            k += (size_t)snprintf(xml + k, sizeof(xml) - k, "<reg name=\"%s\" bitsize=\"32\"%s/>", names[i],
+                                  i == 2 || i == 8 ? " type=\"data_ptr\"" : i == 1 ? " type=\"code_ptr\"" : "");
+        k += (size_t)snprintf(xml + k, sizeof(xml) - k,
+                              "<reg name=\"pc\" bitsize=\"32\" type=\"code_ptr\"/></feature>"
+                              "<feature name=\"org.gnu.gdb.riscv.csr\">");
+        for (int i = 0; i < 7; i++)
+            k += (size_t)snprintf(xml + k, sizeof(xml) - k, "<reg name=\"%s\" bitsize=\"32\"/>", csrs[i]);
+        snprintf(xml + k, sizeof(xml) - k,
+                 "</feature><feature name=\"org.gnu.gdb.riscv.virtual\"><reg name=\"priv\" bitsize=\"32\"/>"
+                 "</feature></target>");
+    }
+    return xml;
+}
 
 // ---------------------------------------------------------------- packets
 
@@ -412,7 +467,7 @@ static void handle(char *pkt, int n)
     case 'g': {
         picocalc_sim_machine_lock();
         char *o = out;
-        for (int r = 0; r < R_COUNT; r++) {
+        for (int r = 0; r < reg_count(); r++) {
             put_reg(o, &m->core[reg_core], r);
             o += 2 * reg_size(r);
         }
@@ -422,7 +477,7 @@ static void handle(char *pkt, int n)
     }
     case 'G': {
         picocalc_sim_machine_lock();
-        for (int r = 0; r < R_COUNT && *p; r++)
+        for (int r = 0; r < reg_count() && *p; r++)
             reg_set(&m->core[reg_core], r, get_le(&p, reg_size(r)));
         picocalc_sim_machine_unlock();
         reply("OK");
@@ -430,7 +485,7 @@ static void handle(char *pkt, int n)
     }
     case 'p': {
         int r = (int)parse_hex(&p);
-        if (r >= R_COUNT) {
+        if (r >= reg_count()) {
             reply("E01");
             return;
         }
@@ -444,7 +499,7 @@ static void handle(char *pkt, int n)
         int r = (int)parse_hex(&p);
         if (*p == '=')
             p++;
-        if (r >= R_COUNT) {
+        if (r >= reg_count()) {
             reply("E01");
             return;
         }
@@ -563,19 +618,23 @@ static void handle(char *pkt, int n)
         return;
     case 'q':
         if (!strncmp(pkt, "qSupported", 10)) {
+            picocalc_sim_machine_lock();
+            pick_desc();
+            picocalc_sim_machine_unlock();
             reply("PacketSize=4000;qXfer:features:read+;QStartNoAckMode+");
         } else if (!strncmp(pkt, "qXfer:features:read:target.xml:", 31)) {
             p = pkt + 31;
             size_t off = (size_t)parse_hex(&p);
             p++;
-            size_t len = (size_t)parse_hex(&p), total = sizeof(target_xml) - 1;
+            const char *xml = desc_rv ? rv_target_xml() : target_xml;
+            size_t len = (size_t)parse_hex(&p), total = strlen(xml);
             if (off >= total) {
                 reply("l");
                 return;
             }
             size_t k = total - off < len ? total - off : len;
             out[0] = k + off >= total ? 'l' : 'm';
-            memcpy(out + 1, target_xml + off, k);
+            memcpy(out + 1, xml + off, k);
             out[k + 1] = 0;
             reply(out);
         } else if (!strcmp(pkt, "qfThreadInfo")) {
@@ -640,6 +699,7 @@ static void serve_client(void)
     // A debugger expects the target stopped when it attaches.
     request_stop(0);
     wait_held();
+    pick_desc();
     picocalc_sim_log("gdb: debugger attached; the machine holds");
     for (;;) {
         int n = read_packet(pkt, sizeof(pkt));

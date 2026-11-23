@@ -1,0 +1,49 @@
+plugins {
+    id 'com.android.application'
+}
+
+// SDL's sources, which build.sh fetches: its C code is built with the emulator (../CMakeLists.txt),
+// its Java side (the activity that loads libSDL3.so and libmain.so) with the app.
+def sdlDir = "${rootDir}/deps/SDL3-3.4.18"
+
+android {
+    namespace = 'de.pbcplus.emulator'
+    compileSdk = 36
+    ndkVersion = '29.0.14206865'
+    defaultConfig {
+        applicationId = 'de.pbcplus.emulator'
+        minSdk = 24
+        targetSdk = 36
+        versionCode = 5
+        versionName = '1.0.2-android5'
+        externalNativeBuild {
+            cmake {
+                arguments '-DPBCONPC_ANDROID_APP=ON', "-DPBCONPC_SDL_DIR=${sdlDir}", '-DANDROID_STL=c++_static'
+                targets 'main'
+                abiFilters 'arm64-v8a', 'x86_64'
+            }
+        }
+    }
+    externalNativeBuild {
+        cmake {
+            path = file('../../CMakeLists.txt')
+        }
+    }
+    sourceSets {
+        main {
+            java.srcDirs += "${sdlDir}/android-project/app/src/main/java"
+        }
+    }
+    buildTypes {
+        release {
+            // No store key yet: the release build (the optimised emulator) is signed with the
+            // debug key, so it installs from a file.
+            minifyEnabled = false
+            signingConfig = signingConfigs.debug
+        }
+    }
+    lint {
+        abortOnError = false
+        checkReleaseBuilds = false
+    }
+}

@@ -30,8 +30,23 @@ if(PBCONPC_NATIVE AND NOT WIN32 AND NOT CMAKE_CROSSCOMPILING)
     add_compile_options(-march=native)
 endif()
 
+# PBConPC on Android (android/): the emulator and frontend/android.c as libmain.so, which SDL's
+# activity loads, with SDL built from PBCONPC_SDL_DIR beside it. The PC's window is left out.
+option(PBCONPC_ANDROID_APP "Build the Android app's library; android/build.sh does" OFF)
+set(PBCONPC_SDL_DIR "" CACHE PATH "SDL3 sources for the Android app")
+if(PBCONPC_ANDROID_APP)
+    set(PICOCALC_SIM_SDL OFF)
+endif()
+
 find_package(Threads REQUIRED)
 include(cmake/Dependencies.cmake)
+if(PBCONPC_ANDROID_APP)
+    set(SDL_SHARED ON CACHE BOOL "" FORCE)
+    set(SDL_STATIC OFF CACHE BOOL "" FORCE)
+    set(SDL_TEST_LIBRARY OFF CACHE BOOL "" FORCE)
+    set(SDL_INSTALL OFF CACHE BOOL "" FORCE)
+    add_subdirectory(${PBCONPC_SDL_DIR} ${CMAKE_BINARY_DIR}/sdl EXCLUDE_FROM_ALL)
+endif()
 
 if(WIN32)
     # Windows 10 for WSAPoll and high-resolution timers, MinGW's own printf for C99 formats,
@@ -71,6 +86,7 @@ add_library(picocalc_sim_objs OBJECT
     emu/accessctrl.c
     emu/chip.c
     emu/cpu.c
+    emu/riscv.c
     emu/cyw43.c
     emu/dcp.c
     emu/devices.c
@@ -165,6 +181,15 @@ if(PICOCALC_SIM_HAVE_SDL)
     if(NOT WIN32 AND NOT APPLE)
         target_link_options(picocalc_sim_objs PUBLIC -static-libstdc++ -static-libgcc)
     endif()
+endif()
+
+if(PBCONPC_ANDROID_APP)
+    target_compile_definitions(picocalc_sim_objs PRIVATE PICOCALC_SIM_HAVE_SDL=1)
+    target_link_libraries(picocalc_sim_objs PUBLIC SDL3::SDL3)
+    add_library(main SHARED frontend/android.c)
+    target_compile_definitions(main PRIVATE PICOCALC_SIM_HAVE_SDL=1)
+    target_link_libraries(main PRIVATE picocalc_sim_objs log)
+    return()
 endif()
 
 add_executable(pbconpc frontend/main.c)

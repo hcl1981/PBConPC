@@ -207,6 +207,11 @@ bool link_open(const char *name, uint64_t local_now)
 #else
     char pname[128];
     snprintf(pname, sizeof(pname), "/%s", id);
+#ifdef __ANDROID__
+    // Android has no shared memory by name, and no second PBConPC to share it with.
+    picocalc_sim_log("link: the link cable is not available on Android");
+    return false;
+#else
     int fd = shm_open(pname, O_RDWR | O_CREAT, 0600);
     if (fd < 0 || ftruncate(fd, sizeof(shm_t)) != 0) {
         picocalc_sim_log("link: cannot create the shared memory %s", pname);
@@ -217,6 +222,7 @@ bool link_open(const char *name, uint64_t local_now)
     void *p = mmap(NULL, sizeof(shm_t), PROT_READ | PROT_WRITE, MAP_SHARED, fd, 0);
     close(fd);
     shm = p == MAP_FAILED ? NULL : p;
+#endif
 #endif
     if (!shm) {
         detach_mapping();

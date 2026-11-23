@@ -874,11 +874,27 @@ static bool jit_init(void)
     return true;
 }
 
+// PBConPC: switched off and on while the machine runs (the Android app's speed display)
+static bool jit_user_off;
+
 static bool jit_available(void)
 {
+    if (jit_user_off)
+        return false;
     if (J.on < 0)
         J.on = jit_init();
     return J.on;
+}
+
+void cpu_jit_set(bool on)
+{
+    jit_user_off = !on;
+    rv_jit_set(on);
+}
+
+int cpu_jit_state(void)
+{
+    return jit_user_off ? 0 : J.on < 0 ? 1 : J.on;
 }
 
 static void jit_forget(void)
@@ -4483,7 +4499,33 @@ static bool jit_loop(cpu_t *c, void *code, uint64_t until)
     }
 }
 
+#elif defined(__aarch64__) && defined(__linux__)
+
+#include "jit_a64.inc"
+
 #else
+
+// No native code for this host: the interpreter runs every block. What machine.c reports of the
+// JIT stays at nothing.
+uint64_t pbc_jit_stat[4], pbc_jit_why[8], pbc_flag_stat[4];
+
+void pbc_jit_gen_report(void);
+void pbc_jit_gen_report(void)
+{
+}
+
+void pbc_jit_calls(uint64_t out[8]);
+void pbc_jit_calls(uint64_t out[8])
+{
+    for (int i = 0; i < 8; i++)
+        out[i] = 0;
+}
+
+void pbc_jit_dump(const char *path);
+void pbc_jit_dump(const char *path)
+{
+    (void)path;
+}
 
 static inline void *jit_entry_for(cpu_t *c, uint32_t pc)
 {
@@ -4508,6 +4550,16 @@ static inline block_t *block_find_for_jit(chip_t *m, uint32_t pc)
 static bool jit_available(void)
 {
     return false;
+}
+
+void cpu_jit_set(bool on)
+{
+    (void)on;
+}
+
+int cpu_jit_state(void)
+{
+    return 0;
 }
 
 static void jit_forget(void)

@@ -308,4 +308,65 @@ uint8_t skin_key_at(SDL_FRect dst, float x, float y)
     return 0;
 }
 
+// The controls lie below the display; the joystick has the left of the board to itself.
+#define TOUCH_TOP 930.0f
+#define TOUCH_SPLIT 340.0f
+
+int skin_touch_keys(SDL_FRect dst, float x0, float y0, float x, float y, uint8_t keys[2])
+{
+    if (dst.w <= 0)
+        return 0;
+    float k = dst.w / SKIN_W;
+    float ix0 = (x0 - dst.x) / k, iy0 = (y0 - dst.y) / k, ix = (x - dst.x) / k, iy = (y - dst.y) / k;
+    if (iy0 < TOUCH_TOP)
+        return 0;
+    if (ix0 >= TOUCH_SPLIT) {
+        float da = hypotf(ix - btn_a_x, iy - btn_y), db = hypotf(ix - btn_b_x, iy - btn_y);
+        if (fminf(da, db) > 150)
+            return 0;
+        keys[0] = da < db ? 's' : 'd';
+        return 1;
+    }
+    float dx = ix - joy_x, dy = iy - joy_y, d = hypotf(dx, dy);
+    if (hypotf(ix0 - joy_x, iy0 - joy_y) < 40 && d < 62) {
+        keys[0] = 'a';
+        return 1;
+    }
+    if (d < 34)
+        return 0;
+    // eight directions: a side counts once it is more than tan(22.5 degrees) of the other
+    int n = 0;
+    float ax = fabsf(dx), ay = fabsf(dy);
+    if (ax > ay * 0.4142f)
+        keys[n++] = dx > 0 ? PC_KEY_RIGHT : PC_KEY_LEFT;
+    if (ay > ax * 0.4142f)
+        keys[n++] = dy > 0 ? PC_KEY_DOWN : PC_KEY_UP;
+    return n;
+}
+
+void skin_draw_touch(SDL_Renderer *renderer, SDL_FRect dst, const uint8_t *keys, int n)
+{
+    if (!glow || dst.w <= 0)
+        return;
+    float k = dst.w / SKIN_W;
+    SDL_SetTextureColorMod(glow, 255, 255, 255);
+    SDL_SetTextureAlphaMod(glow, 110);
+    for (int i = 0; i < n; i++) {
+        float x = joy_x, y = joy_y, r = 70;
+        switch (keys[i]) {
+        case 's': x = btn_a_x, y = btn_y, r = 95; break;
+        case 'd': x = btn_b_x, y = btn_y, r = 95; break;
+        case 'a': r = 80; break;
+        case PC_KEY_LEFT: x -= 70; break;
+        case PC_KEY_RIGHT: x += 70; break;
+        case PC_KEY_UP: y -= 70; break;
+        case PC_KEY_DOWN: y += 70; break;
+        default: continue;
+        }
+        SDL_FRect q = {dst.x + (x - r) * k, dst.y + (y - r) * k, 2 * r * k, 2 * r * k};
+        SDL_RenderTexture(renderer, glow, NULL, &q);
+    }
+    SDL_SetTextureAlphaMod(glow, 255);
+}
+
 #endif

@@ -1,0 +1,13 @@
+# A self-checking RISC-V program for the Hazard3 core (emu/riscv.c); see check.sh.
+cmake_minimum_required(VERSION 3.13)
+set(PICO_PLATFORM rp2350-riscv)
+set(PICO_BOARD pico2)
+include($ENV{PICO_SDK_PATH}/external/pico_sdk_import.cmake)
+project(itest C CXX ASM)
+pico_sdk_init()
+add_executable(itest itest.c)
+target_compile_options(itest PRIVATE -O2)
+target_link_libraries(itest pico_stdlib)
+pico_enable_stdio_uart(itest 1)
+pico_enable_stdio_usb(itest 0)
+pico_add_extra_outputs(itest)
