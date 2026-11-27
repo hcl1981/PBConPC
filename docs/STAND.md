@@ -208,6 +208,20 @@
   (VSCRDEF) läuft unter dem MADCTL des PicoBoy verkehrt herum, benutzt aber
   keine der Firmwares.
 
+## 2026-11-27 — 1.1.1: zweite Instanz mit eigener Chip-Kennung
+
+- **Link-Kabel:** Beide Instanzen meldeten dieselbe Chip-Kennung (OTP CHIPID,
+  Flash-Kennung 0x4B). PBCemu leitet daraus ab, wann es im Starter beim
+  Partner anklopft; mit gleicher Kennung klopften beide gleichzeitig an und
+  fanden sich oft erst nach 5 bis 12 s, vereinzelt gar nicht (ein Spielstart
+  in dieser Zeit lief dann allein). Die zweite Instanz bekommt jetzt eine
+  eigene Kennung (`chip.board_no`: mit eigenem Flash-Abbild `BOARD-2.flash`,
+  bei `--flash` nach der Seite des Kabels).
+- Gemessen ohne Fenster, in Echtzeit, PBCemu 1.0: gleiche Kennung 6 von 14
+  Läufen nach 2 s verbunden; verschiedene Kennung 14 von 14.
+- Nicht geprüft: der Weg über das Fenster (Doppelstart, „Machine → Link
+  cable“).
+
 ## Offen / als Nächstes
 
 1. Fenster im Alltag prüfen (Nutzer): Tasten, Mausklicks im Gehäusebild,

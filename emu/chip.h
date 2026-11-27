@@ -565,6 +565,10 @@ struct chip {
     rp2040_t rp;
 
     bool trace;
+    // PBConPC: which board this is. Two PBConPC on the link cable are two boards, and a
+    // firmware that tells them apart by the chip's ID must see two IDs (PBCemu's lobby draws
+    // the moments it knocks from it: with one ID both knocked at once, again and again).
+    uint16_t board_no;
 };
 
 extern chip_t *g_chip;

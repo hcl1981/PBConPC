@@ -105,8 +105,11 @@ ohne Fenster mit `--usb-console`.
 Geräte mit dem USB-C-Kabel: Link-Spiel (NES zu zweit usw.), „Send to
 partner“, Game-Boy-Linkkabel, Jump'n'Bump, i2collection. PBConPC einfach
 zweimal starten; die zweite Instanz bekommt automatisch eine eigene Kopie
-des Flashs (`pbcplus-2.flash`). Ohne Fenster: `--link` bzw. `--link=NAME`
-(gleicher Name = gleiches Kabel).
+des Flashs (`pbcplus-2.flash`) und eine eigene Chip-Kennung, wie zwei echte
+Geräte sie haben (PBCemu leitet daraus ab, wann es beim Partner anklopft; mit
+gleicher Kennung fanden sich die beiden oft erst nach vielen Sekunden). Ohne
+Fenster: `--link` bzw. `--link=NAME` (gleicher Name = gleiches Kabel); mit
+`--flash` unterscheidet die Seite des Kabels die beiden.
 
 Technik (`emu/link.c`): Die Firmware treibt D+/D− selbst über die
 PHY-Direktregister. Jede Flanke kommt mit ihrem genauen emulierten Zeitpunkt

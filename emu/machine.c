@@ -54,6 +54,7 @@ static atomic_uint starts;
 static atomic_bool restart_flag;
 // The flash image this run keeps, once "none" and the default are worked out from
 // picocalc_sim_opts.
+static uint16_t board_no;       // PBConPC: 0 for the first board, see chip.h
 static char flash_file[4096];
 static const char *flash_path;
 // With --flash none, each board's flash lasts from one restart to the next, as a power cycle
@@ -972,6 +973,7 @@ static bool start(uf2_file_t *f)
             snprintf(file, sizeof(file), "%s-%d.flash", b->name, n);
             picocalc_sim_data_path(flash_file, sizeof(flash_file), file, true);
             copy_if_missing(first, flash_file);
+            board_no = (uint16_t)(n - 1);       // its own chip ID too, see chip.h
         }
         flash_path = flash_file;
     } else if (!strcmp(picocalc_sim_opts.flash_path, "none")) {
@@ -980,6 +982,11 @@ static bool start(uf2_file_t *f)
         snprintf(flash_file, sizeof(flash_file), "%s", picocalc_sim_opts.flash_path);
         flash_path = flash_file;
     }
+    // With a flash image named on the command line (tests: two PBConPC, each with its own
+    // file), the side of the link cable tells the boards apart.
+    if (picocalc_sim_opts.flash_path && link_side() == 1)
+        board_no = 1;
+    chip.board_no = board_no;           // kept across restarts: chip_init() clears the chip
     flash_load();
     if (b->rp2040 && !load_rp2040_rom())
         return false;

@@ -421,12 +421,13 @@ static void periph_write(chip_t *m, uint32_t addr, uint32_t v, bool *ok)
 // reads as unprogrammed.
 static uint32_t otp_data_read(chip_t *m, uint32_t addr)
 {
-    (void)m;
     bool raw = (addr & 0x4000) != 0;
     uint32_t row = raw ? (addr & 0x3fff) >> 2 : (addr & 0x3fff) >> 1;
     static const uint16_t chipid[4] = {0x1d5a, 0x8f3b, 0x2c41, 0xe350};
     uint32_t v = 0;
-    if (row < 4)
+    if (row == 0)
+        v = chipid[0] ^ m->board_no;    // a second board on the link cable has its own ID
+    else if (row < 4)
         v = chipid[row];
     else if (row == 4)
         v = 0x1234;
@@ -435,7 +436,7 @@ static uint32_t otp_data_read(chip_t *m, uint32_t addr)
     uint32_t v2 = 0;
     uint32_t row2 = row + 1;
     if (row2 < 4)
-        v2 = chipid[row2];
+        v2 = chipid[row2];              // row2 is never 0
     else if (row2 == 4)
         v2 = 0x1234;
     return (addr & 2) ? v : (v | (v2 << 16));

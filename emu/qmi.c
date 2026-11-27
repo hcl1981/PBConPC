@@ -151,6 +151,8 @@ static uint8_t flash_byte(chip_t *m, uint8_t mosi)
         }
         case 0x4b: {
             static const uint8_t uid[8] = {0xe6, 0x63, 0x58, 0x98, 0x23, 0x5a, 0x7c, 0x2e};
+            if (i == 7)
+                return (uint8_t)(uid[7] ^ m->board_no);     // as the chip ID: one per board
             return i < 8 ? uid[i] : 0xff;
         }
         case 0x03:
